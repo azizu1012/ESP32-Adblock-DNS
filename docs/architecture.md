@@ -2,129 +2,72 @@
 
 ## Blocking Pipeline
 
-Each DNS query passes through four layers. The first match wins. Each query
-now reports which layer blocked it (displayed as a badge on the dashboard).
+Each DNS query passes through five layers. The first match wins. Each query reports which layer handled it (displayed on the web dashboard).
 
-```
-SAFELIST  →  Heuristic  →  Keyword  →  Hash (blocked.bin)
+```text
+Local Bypass (.local/.arpa) ➔ Static SAFELIST ➔ Dynamic Safelist (GCT) ➔ Heuristics ➔ Keywords ➔ Blocked Bloom Filter
 ```
 
-### 1. SAFELIST
-`dns.py:22` — Tuple of whitelisted domains. Exact match via `domain in SAFELIST`.  
-Always checked first so whitelisted domains skip all blocking.  
+### 1. Local Network Bypass
+`dns.py:231-233` — Bypasses blocking checks entirely for domains ending in `.local` (mDNS) or `.arpa` (Reverse DNS & Service Discovery). This ensures local devices (printers, Chromecast, AirPlay) discover each other with zero latency and zero CPU load on the ESP32.
 Returns `(False, None)`.
 
-### 2. Heuristic (`ad.*` pattern)
-`dns.py:97-101` — If the first label starts with `ad` and the suffix is
-empty, `s`, a number, or `s` + number, the domain is blocked.  
+### 2. Static SAFELIST
+`dns.py:236-237` — Tuple of whitelisted domains. Checked first using exact matching via `domain in SAFELIST`.
+Returns `(False, None)`.
+
+### 3. Dynamic Safelist (GCT)
+`dns.py:239-246` — Thread-safe dictionary containing whitelisted domains rescued by the **Graduated Consensus Trust (GCT)** daemon. If the domain is within its probation lifetime, the query is passed. If the client queries a domain in this list more than 30 times in 1 minute, it is instantly demoted (removed from the safelist) to prevent abuse.
+Returns `(False, None)`.
+
+### 4. Heuristics
+`dns.py:248-256` — Checks if the first label of the domain starts with `ad` followed by an empty suffix, `s`, a number, or `s` + number.
 Returns `(True, "heuristic")`.
+- *Matches*: `ads.example.com`, `ad12.example.com`
+- *Misses*: `adventure.example.com`
 
-Matches: `ads.example.com`, `ad12.example.com`  
-Misses: `adventure.example.com` (`ad` prefix but `venture` doesn't match pattern)
-
-### 3. Keyword matching
-`dns.py:102-103` — Any label containing known tracking keywords
-(`telemetry`, `analytics`, `doubleclick`, etc.) triggers a block.  
+### 5. Keywords
+`dns.py:258-261` — Scans domain labels for known tracking keywords (`telemetry`, `analytics`, `doubleclick`, etc.).
 Returns `(True, "keyword")`.
 
-### 4. Binary search on blocked.bin
-Last resort. Computes FNV-1a 64-bit hash of the domain, binary-searches
-the sorted 8-byte entries in `blocked.bin`. Zero collisions guaranteed
-for all practical purposes (expected collision rate: 1.4e-9 at 230K entries).  
+### 6. Blocked Bloom Filter (BBF)
+`dns.py:263-267` — Last resort. Performs a single 64-byte read from `blocked.bin` to check membership in the Blocked Bloom Filter. If all 8 mapped bits inside the retrieved block are set to `1`, the domain is blocked.
 Returns `(True, "hash")`.
 
-### IPv6 AAAA handling
-`dns.py:140-155` — `_block_response()` detects query type by reading bytes
-at offset `[offset : offset + 2]`. If `qtype == b"\\x00\\x1c"` (AAAA),
-the answer is 16 zero bytes (`::1`). Otherwise it returns `0.0.0.0` (A).
+---
 
-## Hash
+## Blocked Bloom Filter (BBF) Design
 
-**FNV-1a 64-bit** — chosen for speed (no crypto overhead), small code footprint
-(3 arithmetic ops per byte), and 64-bit space guarantees.
+To fit 230K+ domains into the ESP32's tiny 2MB filesystem with zero RAM index overhead, we use a **Blocked Bloom Filter**:
 
-```python
-h = 0xCBF29CE484222325
-for b in data:
-    h = ((h ^ b) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
-```
+1.  **Block Partitioning**: The filter bitmap is divided into **18,750 blocks** of **64 bytes (512 bits)** each, totaling exactly 1,200,000 bytes.
+2.  **FNV-1a 64-bit Hashing**: The domain is hashed using the 64-bit FNV-1a algorithm:
+    -   The 32 MSBs of the hash select the block index: `block_idx = h_high % 18,750`.
+    -   The 32 LSBs of the hash (`h_low`) are used as the seed for bit position mapping.
+3.  **Double Hashing**: Using the Kirsch-Mitzenmacher technique, 8 orthogonal bit positions inside the 512-bit block are mapped using:
+    `bit_pos = (h_low ^ (i * 0x5bd1e995)) % 512` (for $i$ from 0 to 7).
+4.  **Single Read Seek**: The ESP32 seeks directly to `block_idx * 64` and reads 64 bytes into a pre-allocated buffer (`f.readinto(self._bloom_buf)`). This achieves under **1ms lookup time** with zero memory allocation.
+5.  **Domain Count**: The exact number of blocked domains is written as a 4-byte packed integer at the end of `blocked.bin` (total file size: 1,200,004 bytes).
 
-Compared to 32-bit (6 expected collisions at 243K domains), 64-bit eliminates
-false positives entirely.
+---
 
-## Subdomain Deduplication
+## Graduated Consensus Trust (GCT)
 
-The `dedup_by_parent()` function removes domains that are subdomains of
-another blocked domain (`process_blocked.py:38-44`).  
+GCT is an automated self-healing layer designed to bypass false positives in upstream blocklists:
 
-Example: if both `doubleclick.net` and `ads.doubleclick.net` are in the
-blocklist, only `doubleclick.net` is kept because blocking the parent
-effectively blocks all subdomains at the DNS level.
+-   **Consensus Verification Queue**: When a domain triggers a Bloom Filter block, it is added to a thread-safe verification queue. A background thread processes queries asynchronously without blocking user DNS queries.
+-   **Consensus Check**: The worker queries **Google DNS (8.8.8.8)** and checks if all three public adblocking DNS providers (**AdGuard, Control D, Mullvad**) agree the domain is clean.
+-   **Graduated TTL Promotion**:
+    -   *Level 0*: 5 minutes whitelisting.
+    -   *Level 1*: 1 hour whitelisting.
+    -   *Level 2*: 24 hours whitelisting.
+    -   Each time a domain is queried after its TTL expires, it undergoes a recheck. If it passes, it is promoted to the next level. If it fails, it is immediately evicted.
+-   **Suspicious Activity Demotion**: If a whitelisted domain is queried more than 30 times in 1 minute, it is demoted to prevent malware from abusing the whitelisting mechanism.
 
-At 243,090 unique domains from combined sources, dedup removes 13,087
-redundant entries (5.4%), leaving **230,003 hashes**.
+---
 
-## Stats
+## Memory & Streaming Optimizations
 
-Stats persist to `stats.json` with a 7-day rolling window.
-
-- Each blocked domain stores `{c: count, d: day_number}`
-- On load/save, entries with `day < today - 7` are pruned
-- Recent queries: last 100 kept, trimmed to 20 for API response
-- Recent tuples: `(domain, blocked_bool, layer_str_or_None, timestamp)`
-- Category labels computed on-the-fly via keyword rules (`stats.py:12-31`)
-- Stats auto-save every 30s (if dirty). On crash, stats are saved before
-  `machine.reset()` (`boot.py:88`).
-
-## Blocking Layer Reporting
-
-Each query result in the `recent` array includes a `layer` field (index 4):
-- `"safelist"` — passed safelist (allowed)
-- `"heuristic"` — blocked by ad.* heuristic
-- `"keyword"` — blocked by keyword match
-- `"hash"` — blocked by binary search on blocked.bin
-- `""` — not blocked (passed through)
-
-## Dashboard
-
-The live dashboard (`GET /`) includes:
-- **KPI cards**: Total, Blocked, Allowed, Block Ratio, Blocked Domains count
-- **Donut chart**: Blocked vs Allowed
-- **System Info**: RAM (GC heap) with % usage bar, Flash (FS) with % usage bar,
-  CPU freq + core count, CPU temp, uptime, IP address
-- **Recent Queries**: last 10 with block/pass badge, category badge, layer badge, timestamp
-- **Top Blocked**: top 10 blocked domains with category badge and count bar
-
-## Crash Recovery
-
-`boot.py:74-90` — The main loop is wrapped in `try/except`. On any exception:
-1. Print the exception via `sys.print_exception()`
-2. Save stats to flash (`stats.save()`)
-3. Wait 3 seconds
-4. Call `machine.reset()` to reboot
-
-WiFi timeout was increased from 12s to 30s (`wifi.py:46`, `range(60)` at 0.5s interval).
-
-## Hardware Limits
-
-| Parameter | Value |
-|-----------|-------|
-| MCU | ESP32-D0WD-V3 (rev v3.1) |
-| Cores | 2 (Xtensa LX6) |
-| CPU freq | 240 MHz |
-| SRAM | ~520 KB total (GC heap ~134 KB at runtime) |
-| Flash chip | 4,194,304 bytes (4 MB) |
-| Filesystem | ~2 MB LittleFS partition |
-| PSRAM | None |
-| WiFi | 2.4 GHz b/g/n, static IP 192.168.1.234 |
-
-## Filesystem Layout (2 MB partition)
-
-```
-~56 KB   firmware (.py files)
-~1.8 MB  blocked.bin (230K × 8 bytes)
-~20 KB   stats.json (7-day window, typical)
-~1 KB    wifi_config.json
--------------------
-~1.9 MB  used, ~100 KB free
-```
+-   **Garbage Collection (GC)**: MicroPython's heap is limited to ~132KB. The web server (`server.py`) and DNS proxy (`dns.py`) frequently call `gc.collect()` to free discarded objects.
+-   **Streaming File Upload**: The `/api/upload` endpoint streams incoming files directly to LittleFS in 1KB chunks and runs `gc.collect()` every 8KB, allowing memory-safe transfers of files larger than the entire available RAM.
+-   **Locking**: A lock (`_thread.allocate_lock()`) ensures thread safety between the Web Server thread (`server.py`) and the main DNS thread (`dns.py`) when modifying statistics or the dynamic safelist.
