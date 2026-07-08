@@ -27,6 +27,24 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
 .pg{width:100%;height:4px;background:rgba(255,255,255,.06);border-radius:2px;margin-top:4px}
 .pf{height:100%;border-radius:2px;transition:width .5s}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(99,102,241,.3);border-radius:2px}
+/* --- Responsive layout grids --- */
+.grid-kpi{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px;margin-bottom:20px}
+.grid-mid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}
+.grid-bot{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.grid-sys{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));gap:8px}
+@media(max-width:900px){
+  .grid-mid,.grid-bot{grid-template-columns:1fr}
+  .grid-sys{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}
+}
+@media(max-width:480px){
+  .gnav{padding:10px 14px}
+  .nav-up{display:none}
+  .grid-kpi{grid-template-columns:repeat(2,1fr);gap:10px}
+  .grid-sys{grid-template-columns:repeat(2,1fr)}
+  main{padding:14px 10px}
+  .gc{padding:14px}
+  .kv{font-size:22px}
+}
 </style>
 </head>
 <body>
@@ -37,26 +55,26 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
   </div>
   <div style="display:flex;align-items:center;gap:16px">
     <span style="font-size:11px;font-weight:600;color:#22c55e;letter-spacing:1px">LIVE</span>
-    <span id="upNav" style="font-size:13px;color:#64748b;font-family:monospace">--</span>
+    <span id="upNav" class="nav-up" style="font-size:13px;color:#64748b;font-family:monospace">--</span>
     <a href="/setup" style="font-size:13px;color:#818cf8;text-decoration:none;font-weight:500">&#9881; Setup</a>
   </div>
 </nav>
-<main style="max-width:1200px;margin:0 auto;padding:20px 16px">
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:20px">
+<main style="max-width:1200px;margin:0 auto;padding:20px 16px" id="main">
+  <div class="grid-kpi">
     <div class="gc ai d1"><div class="ki" style="background:rgba(99,102,241,.15);color:#818cf8" data-lucide="activity"></div><div class="kv" id="kT">--</div><div class="kl">Total Queries</div></div>
     <div class="gc ai d2"><div class="ki" style="background:rgba(239,68,68,.15);color:#ef4444" data-lucide="shield-off"></div><div class="kv" id="kB" style="color:#ef4444">--</div><div class="kl">Blocked</div></div>
     <div class="gc ai d3"><div class="ki" style="background:rgba(34,197,94,.15);color:#22c55e" data-lucide="shield-check"></div><div class="kv" id="kA" style="color:#22c55e">--</div><div class="kl">Allowed</div></div>
     <div class="gc ai d4"><div class="ki" style="background:rgba(245,158,11,.15);color:#f59e0b" data-lucide="pie-chart"></div><div class="kv" id="kR" style="color:#f59e0b">--%</div><div class="kl">Block Ratio</div></div>
     <div class="gc ai d5"><div class="ki" style="background:rgba(99,102,241,.15);color:#818cf8" data-lucide="list"></div><div class="kv" id="kE" style="font-size:22px">--</div><div class="kl">Blocked Domains</div></div>
   </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+  <div class="grid-mid">
     <div class="gc ai d6">
       <h3 style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px">Block vs Allowed</h3>
       <div style="position:relative;height:200px"><canvas id="donut"></canvas></div>
     </div>
     <div class="gc ai d6">
       <h3 style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:16px;text-transform:uppercase;letter-spacing:.5px">System Info</h3>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px">
+      <div class="grid-sys">
         <div class="sb"><div style="display:flex;align-items:center;gap:5px;margin-bottom:4px"><span data-lucide="memory-stick" style="width:12px;height:12px;color:#818cf8"></span><span style="font-size:11px;color:#94a3b8">RAM</span></div><div class="sv" id="sR">--</div><div class="ss"><span id="sRf">--</span> free (<span id="sRp">0</span>%)</div><div class="pg"><div class="pf" id="sRb" style="background:#818cf8;width:0%"></div></div></div>
         <div class="sb"><div style="display:flex;align-items:center;gap:5px;margin-bottom:4px"><span data-lucide="hard-drive" style="width:12px;height:12px;color:#22c55e"></span><span style="font-size:11px;color:#94a3b8">Flash</span></div><div class="sv" id="sF">--</div><div class="ss"><span id="sFf">--</span> free (<span id="sFp">0</span>%)</div><div class="pg"><div class="pf" id="sFb" style="background:#22c55e;width:0%"></div></div></div>
         <div class="sb"><div style="display:flex;align-items:center;gap:5px;margin-bottom:4px"><span data-lucide="cpu" style="width:12px;height:12px;color:#f59e0b"></span><span style="font-size:11px;color:#94a3b8">CPU</span></div><div class="sv" id="sC">-- MHz</div><div class="ss" id="sCo">-- cores</div></div>
@@ -68,7 +86,7 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
       </div>
     </div>
   </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+  <div class="grid-bot">
     <div class="gc ai d6">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <h3 style="font-size:14px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Recent Queries</h3>
