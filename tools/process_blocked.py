@@ -63,7 +63,7 @@ def dedup_by_parent(domains):
 
 
 def generate(tmp_dir, out_dir=None):
-    """Đọc tất cả file .txt trong tmp_dir, parse, dedup, hash, ghi blocked.bin."""
+    """Đọc tất cả file .txt trong tmp_dir, parse, dedup, hash, ghi blocked.bin dạng Blocked Bloom Filter."""
     if out_dir is None:
         out_dir = os.path.join(os.path.dirname(__file__), "..", "firmware")
     out_path = os.path.join(out_dir, "blocked.bin")
@@ -80,18 +80,25 @@ def generate(tmp_dir, out_dir=None):
     all_d = dedup_by_parent(all_d)
     print(f"After subdomain dedup: {len(all_d)}")
 
-    hashes = set()
-    for d in all_d:
-        hashes.add(fnv1a_64(d.encode("utf-8")))
-    coll = len(hashes) - len(all_d)
-    print(f"Unique hashes: {len(hashes)}{' (' + str(coll) + ' collisions)' if coll else ', zero collisions'}")
+    NUM_BLOCKS = 18750
+    BLOCK_SIZE = 64  # 64 bytes = 512 bits
+    bitmap = bytearray(NUM_BLOCKS * BLOCK_SIZE)
 
-    sh = sorted(hashes)
+    for d in all_d:
+        h = fnv1a_64(d.encode("utf-8"))
+        block_idx = (h >> 32) % NUM_BLOCKS
+        h_low = h & 0xFFFFFFFF
+        for i in range(8):
+            bit_pos = (h_low ^ (i * 0x5bd1e995)) % 512
+            byte_pos = block_idx * BLOCK_SIZE + (bit_pos // 8)
+            bit_mask = 1 << (bit_pos % 8)
+            bitmap[byte_pos] |= bit_mask
+
     with open(out_path, "wb") as f:
-        for h in sh:
-            f.write(struct.pack("<Q", h))
-    kb = len(sh) * 8 / 1024
-    print(f"Written: {kb:.1f} KB / {len(sh)} entries -> {out_path}")
+        f.write(bitmap)
+        f.write(struct.pack("<I", len(all_d)))
+    print(f"Written Blocked Bloom Filter: {len(bitmap)/1024:.1f} KB / {len(all_d)} domains -> {out_path}")
+
 
 
 if __name__ == "__main__":

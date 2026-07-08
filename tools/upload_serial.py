@@ -58,6 +58,7 @@ def main():
     time.sleep(0.1)
     ser.reset_input_buffer()
 
+    # Upload các file Python
     for fname in FILES:
         path = os.path.join(FIRMWARE, fname)
         with open(path, encoding="utf-8") as f:

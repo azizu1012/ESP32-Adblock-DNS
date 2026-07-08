@@ -1,19 +1,18 @@
 """DNS proxy với adblock filtering.
 
 Blocking layers (theo thứ tự):
-1. SAFELIST — bỏ qua domain trong whitelist
-2. Heuristic — pattern "ad.*"
-3. Keyword — telemetry/analytics/doubleclick...
-4. Binary search — FNV-1a 64-bit hash trên blocked.bin
-
-GC threshold được đặt ở init; thu gom mỗi 100 poll để tránh
-stop-the-world trên mỗi truy vấn.
+1. SAFELIST — bỏ qua domain trong whitelist tĩnh
+2. Dynamic Safelist (GCT) — bỏ qua domain đã được đối chứng và tự động phục hồi
+3. Heuristic — pattern "ad.*"
+4. Keyword — telemetry/analytics/doubleclick...
+5. Blocked Bloom Filter — 1.2MB bitmap trên blocked.bin
 """
 import socket
 import struct
 import select
 import gc
 import time
+import _thread
 
 # Fallback for standard Python desktop testing
 if not hasattr(time, "ticks_ms"):
@@ -39,7 +38,7 @@ class DNSServer:
     )
 
     def __init__(self, stats):
-        """Khởi tạo DNS server, đặt GC threshold để thu gom sớm."""
+        """Khởi tạo DNS server, bộ đệm Bloom Filter và luồng phục hồi GCT."""
         self.stats = stats
         self.sock = None
         self.upstream = None
@@ -53,10 +52,23 @@ class DNSServer:
         self.wifi = None
         self.stats.upstream_ip = "1.1.1.1"
         self.stats.upstream_rtt = 0
+
+        # Bloom Filter Buffer
+        self._bloom_buf = bytearray(64)  # Đọc khối 64 bytes từ flash
+
+        # Graduated Consensus Trust (GCT) structures
+        self.lock = _thread.allocate_lock()
+        self.verify_queue = []  # Hàng đợi tên miền chờ kiểm chứng
+        self.safelist_dyn = {}  # domain -> (expiry, level, last_query)
+        self.query_counts = {}  # domain -> (count, window_start_time)
+
         try:
             gc.threshold(gc.mem_free() // 4 + gc.mem_alloc())
         except:
             pass
+
+        # Bắt đầu luồng kiểm chứng ngầm (GCT Worker)
+        _thread.start_new_thread(self._verify_worker, ())
 
     def _measure_rtt(self, ip, timeout_ms=300):
         """Đo độ trễ RTT tới một IP bằng cách gửi DNS query cho google.com."""
@@ -129,7 +141,7 @@ class DNSServer:
 
         now = time.ticks_ms()
         
-        # 1. Kiểm tra định kỳ (fallback 6 giờ)
+        # 1. Kiểm tra định kỳ (6 giờ)
         if time.ticks_diff(now, self.last_opt_ticks) > 21600000:
             self.last_opt_ticks = now
             try:
@@ -162,10 +174,7 @@ class DNSServer:
         return self.sock
 
     def poll(self):
-        """Poll một gói DNS: parse, check block, proxy hoặc trả về fake response.
-        
-        Returns True nếu bị chặn (block).
-        """
+        """Poll một gói DNS: parse, check block, proxy hoặc trả về fake response."""
         readable, _, _ = select.select([self.sock], [], [], 1.0)
         if not readable:
             self._gc_tick()
@@ -189,9 +198,9 @@ class DNSServer:
             else:
                 self.stats.add(domain, False, client_ip=addr[0])
                 print(f"[DNS] {addr[0]} -> {domain} (PASS)")
-                self._proxy(request, addr)
+                self._proxy(request, addr, domain)
         else:
-            self._proxy(request, addr)
+            self._proxy(request, addr, None)
         self._gc_tick()
         return blocked
 
@@ -202,7 +211,7 @@ class DNSServer:
             gc.collect()
 
     def _parse_domain(self, data):
-        """Giải nén domain name từ DNS request (format nhãn độ dài)."""
+        """Giải nén domain name từ DNS request."""
         try:
             offset = 12
             labels = []
@@ -218,12 +227,21 @@ class DNSServer:
             return None
 
     def _check(self, domain):
-        """Kiểm tra domain qua 4 lớp: SAFELIST → heuristic → keyword → hash.
-        
-        Returns (blocked: bool, layer: str|None).
-        """
+        """Kiểm tra domain qua các lớp chặn, bao gồm cả GCT dynamic safelist."""
+        # Lớp 1: Safelist tĩnh
         if domain in self.SAFELIST:
             return False, None
+
+        # Lớp 2: Dynamic Safelist (GCT tự phục hồi)
+        with self.lock:
+            if domain in self.safelist_dyn:
+                expiry, level, _ = self.safelist_dyn[domain]
+                if time.time() < expiry:
+                    # Update last query time
+                    self.safelist_dyn[domain] = (expiry, level, time.time())
+                    return False, None
+
+        # Lớp 3: Heuristics
         parts = domain.split(".")
         if not parts:
             return False, None
@@ -232,43 +250,141 @@ class DNSServer:
             suffix = first[2:]
             if not suffix or suffix == "s" or suffix.isdigit() or (suffix.startswith("s") and suffix[1:].isdigit()):
                 return True, "heuristic"
+
+        # Lớp 4: Keywords
         for part in parts:
             if part in self.KEYWORDS:
                 return True, "keyword"
-        if self._hash_search(self._fnv1a_64(domain.encode("utf-8"))):
+
+        # Lớp 5: Blocked Bloom Filter
+        if self._bloom_search(domain):
+            # Nếu bị Bloom Filter chặn, xếp hàng đợi kiểm chứng ngầm GCT
+            self._enqueue_verification(domain)
             return True, "hash"
+
         return False, None
 
     @staticmethod
     def _fnv1a_64(data):
-        """FNV-1a 64-bit hash — nhanh, không mã hoá, 3 toán tử/byte."""
+        """FNV-1a 64-bit hash."""
         h = 0xCBF29CE484222325
         p = 0x100000001B3
         for b in data:
             h = ((h ^ b) * p) & 0xFFFFFFFFFFFFFFFF
         return h
 
-    def _hash_search(self, target):
-        """Tìm hash trong blocked.bin bằng binary search (trên flash, không vào RAM)."""
+    def _bloom_search(self, domain):
+        """Tìm domain trong Blocked Bloom Filter bằng 1 lần đọc Flash 64 bytes."""
         try:
+            h = self._fnv1a_64(domain.encode("utf-8"))
+            block_idx = (h >> 32) % 18750
+            h_low = h & 0xFFFFFFFF
+            
             with open(self.BLOCKED_BIN, "rb") as f:
-                f.seek(0, 2)
-                size = f.tell()
-                count = size // 8
-                lo, hi = 0, count - 1
-                while lo <= hi:
-                    mid = (lo + hi) // 2
-                    f.seek(mid * 8)
-                    val = struct.unpack("<Q", f.read(8))[0]
-                    if val == target:
-                        return True
-                    if val < target:
-                        lo = mid + 1
-                    else:
-                        hi = mid - 1
+                f.seek(block_idx * 64)
+                f.readinto(self._bloom_buf, 64)
+                
+            for i in range(8):
+                bit_pos = (h_low ^ (i * 0x5bd1e995)) % 512
+                byte_pos = bit_pos // 8
+                bit_mask = 1 << (bit_pos % 8)
+                if not (self._bloom_buf[byte_pos] & bit_mask):
+                    return False
+            return True
         except:
-            pass
-        return False
+            return False
+
+    def _enqueue_verification(self, domain):
+        """Thêm domain vào hàng đợi kiểm chứng ngầm GCT nếu chưa có."""
+        with self.lock:
+            # Nếu đang trong hàng đợi hoặc safelist động chưa hết hạn, bỏ qua
+            if domain not in self.verify_queue:
+                # Giới hạn hàng đợi tối đa 20 phần tử để tránh phình RAM
+                if len(self.verify_queue) < 20:
+                    self.verify_queue.append(domain)
+
+    def _dns_query_raw(self, domain, server_ip, timeout=1.5):
+        """Gửi gói tin DNS UDP thô để xác minh trạng thái domain ở luồng phụ."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(timeout)
+        try:
+            # Tạo gói tin DNS Query chuẩn cho bản ghi A
+            header = b'\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00'
+            parts = domain.split('.')
+            qname = b''
+            for part in parts:
+                qname += bytes([len(part)]) + part.encode()
+            qname += b'\x00'
+            footer = b'\x00\x01\x00\x01'
+            query = header + qname + footer
+
+            sock.sendto(query, (server_ip, 53))
+            resp, _ = sock.recvfrom(512)
+            if len(resp) > 12:
+                # Đọc số lượng câu trả lời (Answer Count)
+                ancount = struct.unpack(">H", resp[6:8])[0]
+                if ancount > 0:
+                    # Kiểm tra 4 byte cuối cùng (IP phân giải)
+                    ip = resp[-4:]
+                    if ip != b'\x00\x00\x00\x00' and ip != b'\x7f\x00\x00\x01':
+                        return True  # Phân giải thành công sang IP thật
+            return False
+        except:
+            return False
+        finally:
+            sock.close()
+
+    def _verify_worker(self):
+        """Luồng phụ liên tục kiểm chứng hàng đợi bằng cơ chế đồng thuận 3/3."""
+        while True:
+            if not self.verify_queue:
+                time.sleep(2)
+                continue
+
+            domain = None
+            with self.lock:
+                if self.verify_queue:
+                    domain = self.verify_queue.pop(0)
+
+            if not domain:
+                continue
+
+            # Bước 1: Kiểm tra xem domain có chạy bình thường trên internet không
+            g_ok = self._dns_query_raw(domain, "8.8.8.8")
+            if not g_ok:
+                continue  # Bỏ qua nếu domain chết hoặc mạng mất kết nối
+
+            # Bước 2: Truy vấn chéo 3 cổng DNS chặn quảng cáo lớn
+            adg_ok = self._dns_query_raw(domain, "94.140.14.14")
+            ctd_ok = self._dns_query_raw(domain, "76.76.2.2")
+            mul_ok = self._dns_query_raw(domain, "194.242.2.12")
+
+            # Đồng thuận 3/3: Cả 3 máy chủ đều xác nhận tên miền sạch
+            if adg_ok and ctd_ok and mul_ok:
+                self._heal_domain(domain)
+            else:
+                # Nếu bất kỳ con DNS nào báo chặn, hạ cấp ngay khỏi safelist nếu đang tạm tha
+                with self.lock:
+                    if domain in self.safelist_dyn:
+                        del self.safelist_dyn[domain]
+                        print(f"[GCT] Re-blocked real ad: {domain}")
+
+    def _heal_domain(self, domain):
+        """Đưa domain vào diện tạm tha và thăng hạng cấp độ tin cậy."""
+        with self.lock:
+            level = 0
+            ttl = 300  # 5 phút mặc định cho level 0
+            if domain in self.safelist_dyn:
+                _, old_level, _ = self.safelist_dyn[domain]
+                if old_level == 0:
+                    level = 1
+                    ttl = 3600  # 1 giờ cho level 1
+                elif old_level >= 1:
+                    level = 2
+                    ttl = 86400  # 24 giờ cho level 2
+            
+            self.safelist_dyn[domain] = (time.time() + ttl, level, time.time())
+            print(f"[GCT] Self-healed {domain}: level={level}, ttl={ttl}s")
 
     @staticmethod
     def _block_response(request):
@@ -294,8 +410,27 @@ class DNSServer:
         except:
             return b""
 
-    def _proxy(self, request, addr):
-        """Chuyển tiếp DNS request lên upstream và gửi response về client."""
+    def _proxy(self, request, addr, domain=None):
+        """Chuyển tiếp DNS request lên upstream và giám sát hành vi tên miền tạm tha."""
+        # Giám sát tần suất của tên miền đang trong dynamic safelist
+        if domain and domain in self.safelist_dyn:
+            now_sec = time.time()
+            count, start_t = self.query_counts.get(domain, (0, now_sec))
+            if now_sec - start_t > 60:
+                count = 1
+                start_t = now_sec
+            else:
+                count += 1
+            self.query_counts[domain] = (count, start_t)
+
+            # Nếu spam > 30 requests/phút -> Phát hiện hành vi bất thường, thu hồi tạm tha ngay
+            if count > 30:
+                print(f"[GCT] Demoted {domain} due to high activity: {count} req/min")
+                with self.lock:
+                    if domain in self.safelist_dyn:
+                        del self.safelist_dyn[domain]
+                self.query_counts[domain] = (0, now_sec)
+
         t0 = time.ticks_ms()
         self.last_query_ticks = t0
         try:
@@ -303,18 +438,17 @@ class DNSServer:
             response, _ = self.upstream.recvfrom(1024)
             self.sock.sendto(response, addr)
             
-            # Đo RTT truy vấn thực tế
+            # Đo RTT
             rtt = time.ticks_diff(time.ticks_ms(), t0)
             self.upstream_rtt = rtt
             self.stats.upstream_rtt = rtt
             
-            # Tính trung bình trượt RTT để phát hiện DNS bị chậm
+            # Tính trung bình trượt RTT
             if self.rtt_cnt < 5:
                 self.rtt_sum += rtt
                 self.rtt_cnt += 1
             else:
                 self.rtt_sum = int(self.rtt_sum * 0.8 + rtt * 0.2)
-                # Nếu RTT trung bình cao (> 150ms) và chưa tối ưu hóa trong 5 phút
                 if self.rtt_sum > 150 and time.ticks_diff(time.ticks_ms(), self.last_opt_ticks) > 300000:
                     print(f"[DNS] High latency detected ({self.rtt_sum} ms), re-optimizing...")
                     self.rtt_cnt = 0

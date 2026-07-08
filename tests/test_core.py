@@ -116,7 +116,7 @@ def test_dedup_handles_multi_level():
 
 
 def test_blocked_bin_integrity():
-    """Verify blocked.bin: sorted, correct entry size, no collisions."""
+    """Verify blocked.bin: Bloom Filter structure and total count footer."""
     path = os.path.join(FIRMWARE_DIR, "blocked.bin")
     if not os.path.exists(path):
         return  # skip if no blocked.bin (not generated yet)
@@ -124,25 +124,18 @@ def test_blocked_bin_integrity():
     with open(path, "rb") as f:
         data = f.read()
 
-    assert len(data) % 8 == 0, "file must be 8-byte aligned"
-    count = len(data) // 8
-    assert count > 0, "file must have entries"
+    # Fixed Bloom Filter size: 1,200,000 bytes + 4-byte count footer
+    assert len(data) == 1200004, "file must be exactly 1,200,004 bytes"
+    
+    # Read count footer
+    count = struct.unpack("<I", data[-4:])[0]
+    assert count > 0, "file must record at least 1 domain"
 
-    prev = 0
-    hashes = set()
-    for i in range(count):
-        h = struct.unpack("<Q", data[i*8:(i+1)*8])[0]
-        assert h not in hashes, f"collision at index {i}: hash 0x{h:016x}"
-        hashes.add(h)
-        if i > 0:
-            assert h > prev, f"unsorted at index {i}: 0x{prev:016x} >= 0x{h:016x}"
-        prev = h
-
-    print(f"blocked.bin: {count:,} entries, {len(data)/1024:.0f} KB, no collisions, sorted OK")
+    print(f"blocked.bin: {count:,} domains mapped into 1.2 MB Blocked Bloom Filter OK")
 
 
 def test_safelist_not_blocked():
-    """Verify domains in SAFELIST are NOT in blocked.bin."""
+    """Verify domains in SAFELIST do NOT match Bloom Filter."""
     path = os.path.join(FIRMWARE_DIR, "blocked.bin")
     if not os.path.exists(path):
         return
@@ -151,16 +144,25 @@ def test_safelist_not_blocked():
     with open(path, "rb") as f:
         data = f.read()
 
-    count = len(data) // 8
-    hashes = {struct.unpack("<Q", data[i*8:(i+1)*8])[0] for i in range(count)}
+    def bloom_check(domain):
+        h = fnv1a_64(domain.encode("utf-8"))
+        block_idx = (h >> 32) % 18750
+        h_low = h & 0xFFFFFFFF
+        block_offset = block_idx * 64
+        for i in range(8):
+            bit_pos = (h_low ^ (i * 0x5bd1e995)) % 512
+            byte_pos = block_offset + (bit_pos // 8)
+            bit_mask = 1 << (bit_pos % 8)
+            if not (data[byte_pos] & bit_mask):
+                return False
+        return True
 
     for domain in safelist:
-        h = fnv1a_64(domain.encode())
-        assert h not in hashes, f"{domain} is in blocked.bin but should be in SAFELIST"
+        assert not bloom_check(domain), f"{domain} matches Bloom Filter but should be in SAFELIST"
 
 
 def test_known_blocked_domains():
-    """Verify known ad/tracker domains ARE in blocked.bin."""
+    """Verify known ad/tracker domains DO match Bloom Filter."""
     path = os.path.join(FIRMWARE_DIR, "blocked.bin")
     if not os.path.exists(path):
         return
@@ -168,8 +170,18 @@ def test_known_blocked_domains():
     with open(path, "rb") as f:
         data = f.read()
 
-    count = len(data) // 8
-    hashes = {struct.unpack("<Q", data[i*8:(i+1)*8])[0] for i in range(count)}
+    def bloom_check(domain):
+        h = fnv1a_64(domain.encode("utf-8"))
+        block_idx = (h >> 32) % 18750
+        h_low = h & 0xFFFFFFFF
+        block_offset = block_idx * 64
+        for i in range(8):
+            bit_pos = (h_low ^ (i * 0x5bd1e995)) % 512
+            byte_pos = block_offset + (bit_pos // 8)
+            bit_mask = 1 << (bit_pos % 8)
+            if not (data[byte_pos] & bit_mask):
+                return False
+        return True
 
     known_blocked = [
         "doubleclick.net",
@@ -181,8 +193,7 @@ def test_known_blocked_domains():
         "scorecardresearch.com",
     ]
     for domain in known_blocked:
-        h = fnv1a_64(domain.encode())
-        assert h in hashes, f"{domain} should be in blocked.bin"
+        assert bloom_check(domain), f"{domain} should match Bloom Filter"
 
 
 def test_combined_sources_union():
@@ -198,16 +209,17 @@ def test_combined_sources_union():
 
 
 if __name__ == "__main__":
-    tests = [v for k, v in globals().items() if k.startswith("test_")]
-    passed = 0
+    # Run all functions starting with test_
+    funcs = [obj for name, obj in list(globals().items()) if name.startswith("test_")]
     failed = 0
-    for test in tests:
+    print(f"Running {len(funcs)} tests...")
+    for func in funcs:
         try:
-            test()
-            print(f"  PASS  {test.__name__}")
-            passed += 1
-        except Exception as e:
-            print(f"  FAIL  {test.__name__}: {e}")
+            func()
+            print(f"  PASS  {func.__name__}")
+        except AssertionError as e:
+            print(f"  FAIL  {func.__name__}: {e}")
             failed += 1
-    print(f"\n{passed + failed} tests: {passed} passed, {failed} failed")
-    sys.exit(0 if failed == 0 else 1)
+    if failed:
+        sys.exit(1)
+    sys.exit(0)

@@ -201,9 +201,12 @@ class Stats:
 
     @staticmethod
     def blocked_count():
-        """Số lượng entry trong blocked.bin (từ kích thước file)."""
+        """Số lượng entry trong blocked.bin (lưu ở 4 byte cuối)."""
         try:
-            return os.stat("blocked.bin")[6] // 8
+            import struct
+            with open("blocked.bin", "rb") as f:
+                f.seek(-4, 2)
+                return struct.unpack("<I", f.read(4))[0]
         except:
             return 0
 
