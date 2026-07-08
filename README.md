@@ -36,9 +36,9 @@ curl -X POST http://192.168.1.234/api/reboot
 
 | Component | Spec |
 |-----------|------|
-| MCU | ESP32-D0WD-V3 (single-core, **no PSRAM**) |
-| Flash | 4MB (2MB filesystem) |
-| RAM | ~166KB total (~155KB free) |
+| MCU | ESP32-D0WD-V3 (dual-core 240 MHz, **no PSRAM**) |
+| Flash | 4MB chip (2MB filesystem) |
+| RAM | ~520KB total (GC heap ~134KB) |
 | LED | GPIO 2 (active high) |
 | BOOT | GPIO 0 (pull-up) |
 

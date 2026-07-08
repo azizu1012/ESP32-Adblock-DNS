@@ -3,6 +3,9 @@
 The web server runs on port 80. All POST bodies are `application/x-www-form-urlencoded`
 or JSON (for `/api/config/wifi`). Responses are JSON.
 
+Additional fields (not shown in example below) are added automatically — see the
+JSON response for the full set. The dashboard polls `/api/stats` every 3 seconds.
+
 ## `GET /` — Dashboard
 
 Returns the dashboard HTML. Auto-refreshes every 3 seconds with `/api/stats`.
@@ -21,19 +24,32 @@ Returns the dashboard HTML. Auto-refreshes every 3 seconds with `/api/stats`.
   "total_ram": 166400,
   "last_blocked": "doubleclick.net",
   "recent": [
-    ["doubleclick.net", true, "tracking", 2],
-    ["google.com", false, "", 5]
+    ["doubleclick.net", true, "tracking", 2, "hash"],
+    ["google.com", false, "", 5, ""]
   ],
   "top": [
     {"d": "doubleclick.net", "c": 47, "g": "tracking"},
     {"d": "scorecardresearch.com", "c": 23, "g": "tracking"}
-  ]
+  ],
+  "flash_free": 102400,
+  "flash_total": 1048576,
+  "flash_chip": 4194304,
+  "blocklist_entries": 230003,
+  "cpu_freq": 240,
+  "core_count": 2
 }
 ```
 
 Fields:
 - `recent[][2]` — category string (empty if passed)
 - `recent[][3]` — age in seconds since query
+- `recent[][4]` — blocking layer name (`"heuristic"`, `"keyword"`, `"hash"`, or `""`)
+- `flash_free` — free filesystem bytes
+- `flash_total` — total filesystem bytes
+- `flash_chip` — raw chip flash size (typically 4,194,304)
+- `blocklist_entries` — number of entries in blocked.bin
+- `cpu_freq` — CPU frequency in MHz
+- `core_count` — number of CPU cores (2 for ESP32)
 
 ## `GET /setup` — Setup page
 

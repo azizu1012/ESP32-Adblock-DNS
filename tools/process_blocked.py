@@ -1,7 +1,19 @@
+"""Sinh blocked.bin từ danh sách blocklist dạng hosts hoặc AdBlock.
+
+Quy trình:
+1. Parse nhiều file blocklist → tập domain duy nhất
+2. Dedup subdomain (nếu cha đã block thì bỏ con)
+3. Tính FNV-1a 64-bit hash cho mỗi domain
+4. Sắp xếp hash, ghi ra file nhị phân (8 byte/entry)
+
+Usage:
+  python tools/process_blocked.py <input_dir> [<output_dir>]
+"""
 import sys, struct, os
 
 
 def fnv1a_64(b):
+    """Tính FNV-1a 64-bit hash cho bytes đầu vào."""
     h = 0xCBF29CE484222325
     p = 0x100000001B3
     for byte in b:
@@ -10,6 +22,7 @@ def fnv1a_64(b):
 
 
 def parse_domains(path):
+    """Parse file blocklist: hosts format (0.0.0.0 x), AdGuard format (||x^), hoặc domain thuần."""
     doms = set()
     with open(path, encoding="utf-8", errors="ignore") as f:
         for line in f:
@@ -36,6 +49,10 @@ def parse_domains(path):
 
 
 def dedup_by_parent(domains):
+    """Loại bỏ subdomain nếu parent domain đã có trong danh sách.
+    
+    VD: 'ads.doubleclick.net' bị loại nếu 'doubleclick.net' đã block.
+    """
     keep = set()
     for d in sorted(domains, key=lambda x: x.count(".")):
         parts = d.split(".")
@@ -46,6 +63,7 @@ def dedup_by_parent(domains):
 
 
 def generate(tmp_dir, out_dir=None):
+    """Đọc tất cả file .txt trong tmp_dir, parse, dedup, hash, ghi blocked.bin."""
     if out_dir is None:
         out_dir = os.path.join(os.path.dirname(__file__), "..", "firmware")
     out_path = os.path.join(out_dir, "blocked.bin")

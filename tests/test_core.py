@@ -13,24 +13,28 @@ FIRMWARE_DIR = os.path.join(TESTS_DIR, "..", "firmware")
 
 
 def test_fnv1a_64_deterministic():
+    """FNV-1a 64-bit: cùng input → cùng hash."""
     h1 = fnv1a_64(b"doubleclick.net")
     h2 = fnv1a_64(b"doubleclick.net")
     assert h1 == h2, "hash must be deterministic"
 
 
 def test_fnv1a_64_different():
+    """FNV-1a 64-bit: domain khác → hash khác."""
     h1 = fnv1a_64(b"doubleclick.net")
     h2 = fnv1a_64(b"google.com")
     assert h1 != h2, "different domains must produce different hashes"
 
 
 def test_fnv1a_64_known():
+    """FNV-1a 64-bit: kiểm tra giá trị nằm trong khoảng 64-bit."""
     h = fnv1a_64(b"example.com")
     # Just check it's a 64-bit value
     assert 0 <= h <= 0xFFFFFFFFFFFFFFFF
 
 
 def test_fnv1a_64_zero_collision_on_sample():
+    """FNV-1a 64-bit: không collision trên 5 domain mẫu."""
     domains = ["google.com", "facebook.com", "doubleclick.net",
                "ads.example.com", "tracker.analytics.io"]
     hashes = [fnv1a_64(d.encode()) for d in domains]

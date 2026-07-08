@@ -1,8 +1,8 @@
-"""Persistent query statistics with 7-day rolling window.
+"""Thống kê truy vấn với cửa sổ 7 ngày.
 
-Tracks total/blocked queries, recent activity, and top blocked domains.
-Data is persisted to stats.json every 30s. Old entries (day < today-7)
-are pruned automatically on load and save.
+Theo dõi tổng số/chặn, hoạt động gần đây, top domain bị chặn.
+Dữ liệu lưu vào stats.json mỗi 30s. Mục cũ (day < today-7)
+bị xoá tự động khi load/save.
 """
 import gc, json, os
 from time import time
@@ -24,6 +24,7 @@ CAT_RULES = (
 
 
 def categorize(domain):
+    """Phân loại domain vào nhóm: telemetry, tracking, malware, social, ads."""
     for cat, keywords in CAT_RULES:
         for kw in keywords:
             if kw in domain:
@@ -33,12 +34,14 @@ def categorize(domain):
 
 class Stats:
     def __init__(self):
+        """Khởi tạo stats, xoá sạch và load từ file."""
         self.dirty = False
         self.last_save = 0
         self.reset()
         self.load()
 
     def reset(self):
+        """Đặt lại tất cả bộ đếm về 0."""
         self.total = 0
         self.blocked = 0
         self.start_time = time()
@@ -50,7 +53,8 @@ class Stats:
     def _today(self):
         return int(time() // 86400)
 
-    def add(self, domain, is_blocked):
+    def add(self, domain, is_blocked, layer=None):
+        """Ghi nhận một truy vấn: tăng bộ đếm, cập nhật top và recent."""
         self.total += 1
         if is_blocked:
             self.blocked += 1
@@ -61,7 +65,7 @@ class Stats:
             else:
                 self.top[domain] = {"c": 1, "d": today}
             self.dirty = True
-        self.recent.append((domain, is_blocked, time()))
+        self.recent.append((domain, is_blocked, layer, time()))
         if len(self.recent) > 100:
             self.recent = self.recent[-50:]
 
@@ -92,6 +96,7 @@ class Stats:
         return gc.mem_free() + gc.mem_alloc()
 
     def _cleanup(self):
+        """Xoá các mục cũ hơn 7 ngày."""
         cutoff = self._today - 7
         todel = [d for d, v in self.top.items() if v.get("d", 0) < cutoff]
         for d in todel:
@@ -100,9 +105,11 @@ class Stats:
             self.dirty = True
 
     def top_blocked(self, n=10):
+        """Trả về n domain bị chặn nhiều nhất, sắp xếp giảm dần."""
         return sorted(self.top.items(), key=lambda x: -x[1]["c"])[:n]
 
     def load(self):
+        """Đọc stats.json, phục hồi top và dọn dẹp mục cũ."""
         self.top = {}
         try:
             with open(FILE) as f:
@@ -121,6 +128,7 @@ class Stats:
             pass
 
     def save(self):
+        """Ghi stats.json nếu có thay đổi (dirty flag)."""
         if not self.dirty:
             return
         self.dirty = False
@@ -137,10 +145,66 @@ class Stats:
             pass
 
     def tick(self):
+        """Tự động lưu nếu dirty hơn 30 giây."""
         if self.dirty and time() - self.last_save > 30:
             self.save()
 
+    @staticmethod
+    def flash_free():
+        """Dung lượng trống trên filesystem (bytes)."""
+        try:
+            import os
+            s = os.statvfs("/")
+            return s[0] * s[3]
+        except:
+            return 0
+
+    @staticmethod
+    def flash_total():
+        """Tổng dung lượng filesystem (bytes)."""
+        try:
+            import os
+            s = os.statvfs("/")
+            return s[0] * s[2]
+        except:
+            return 0
+
+    @staticmethod
+    def flash_chip():
+        """Tổng dung lượng chip flash (bytes) — thường 4MB."""
+        try:
+            import esp
+            return esp.flash_size()
+        except:
+            return 0
+
+    @staticmethod
+    def blocked_count():
+        """Số lượng entry trong blocked.bin (từ kích thước file)."""
+        try:
+            return os.stat("blocked.bin")[6] // 8
+        except:
+            return 0
+
+    @staticmethod
+    def cpu_freq():
+        """Tần số CPU (MHz)."""
+        try:
+            import machine
+            return machine.freq() // 1000000
+        except:
+            return 0
+
+    @staticmethod
+    def core_count():
+        """Số nhân CPU — ESP32-D0WD-V3 có 2 nhân."""
+        try:
+            return 2
+        except:
+            return 1
+
     def to_dict(self):
+        """Xuất toàn bộ thống kê dạng dict để serve JSON API."""
         now = time()
         return {
             "total": self.total,
@@ -152,6 +216,12 @@ class Stats:
             "alloc_ram": self.alloc_ram(),
             "total_ram": self.total_ram(),
             "last_blocked": self.last_blocked,
-            "recent": [(d, b, categorize(d) if b else "", int(now - t)) for d, b, t in self.recent[-20:]],
+            "recent": [(d, b, categorize(d) if b else "", int(now - t), layer) for d, b, layer, t in self.recent[-20:]],
             "top": [{"d": d, "c": v["c"], "g": categorize(d)} for d, v in self.top_blocked(10)],
+            "flash_free": self.flash_free(),
+            "flash_total": self.flash_total(),
+            "flash_chip": self.flash_chip(),
+            "blocklist_entries": self.blocked_count(),
+            "cpu_freq": self.cpu_freq(),
+            "core_count": self.core_count(),
         }

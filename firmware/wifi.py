@@ -1,7 +1,7 @@
 """WiFi connection manager.
 
-Supports static IP, DHCP with auto-assign, and AP setup mode.
-Auto-assign saves the DHCP-obtained IP as static on first connect.
+Hỗ trợ static IP, DHCP với auto-assign, và chế độ AP setup.
+Auto-assign lưu IP nhận từ DHCP làm static ngay lần kết nối đầu.
 """
 import network
 import time
@@ -13,11 +13,13 @@ class WiFiManager:
     CONFIG_SSID = "ESP32-AdBlocker-Config"
 
     def __init__(self):
+        """Bật WiFi STA interface."""
         self.wlan = network.WLAN(network.STA_IF)
         self.wlan.active(True)
 
     @staticmethod
     def set_hostname(name="esp32-adblocker"):
+        """Đặt hostname DHCP (dùng try/except vì API khác nhau giữa các bản MicroPython)."""
         try:
             network.hostname(name)
         except:
@@ -27,6 +29,7 @@ class WiFiManager:
                 pass
 
     def connect(self, cfg):
+        """Kết nối WiFi: dùng static IP nếu có, fallback DHCP, timeout 30s."""
         ssid = cfg.get("ssid")
         password = cfg.get("password", "")
         static_ip = cfg.get("ip")
@@ -43,7 +46,7 @@ class WiFiManager:
         print(f"Connecting to {ssid}...")
         self.wlan.connect(ssid, password)
 
-        for _ in range(24):
+        for _ in range(60):
             if self.wlan.isconnected():
                 break
             time.sleep(0.5)
@@ -59,6 +62,7 @@ class WiFiManager:
         return False
 
     def _auto_assign_static(self, ssid, password, ip_info, subnet):
+        """Tự gán IP tĩnh (xxx.xxx.xxx.234) từ DHCP lease nhận được, reset để áp dụng."""
         parts = ip_info[0].split(".")
         new_ip = ".".join(parts[:3]) + ".234"
         gateway = ip_info[2]
@@ -71,6 +75,7 @@ class WiFiManager:
         machine.reset()
 
     def start_ap(self):
+        """Bật Access Point để cấu hình lần đầu."""
         ap = network.WLAN(network.AP_IF)
         ap.active(True)
         ap.config(essid=self.CONFIG_SSID, authmode=network.AUTH_OPEN)
@@ -78,7 +83,9 @@ class WiFiManager:
         return ap.ifconfig()[0]
 
     def is_connected(self):
+        """Kiểm tra trạng thái kết nối WiFi."""
         return self.wlan.isconnected()
 
     def ifconfig(self):
+        """Trả về (ip, subnet, gateway, dns)."""
         return self.wlan.ifconfig()

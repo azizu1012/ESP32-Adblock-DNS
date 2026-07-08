@@ -3,10 +3,10 @@
 Routes:
   GET  /             — Dashboard (dark theme, live stats)
   GET  /api/stats    — JSON stats endpoint
-  POST /api/upload   — Upload new blocked.bin (streamed)
-  POST /api/config/wifi — Save WiFi config & reboot
-  POST /api/config/reset — Reset config & reboot
-  POST /api/config/dhcp   — Switch to DHCP & reboot
+  POST /api/upload   — Upload blocked.bin mới (stream ghi vào flash)
+  POST /api/config/wifi — Lưu WiFi config & reboot
+  POST /api/config/reset — Xoá config & reboot
+  POST /api/config/dhcp   — Chuyển sang DHCP & reboot
   GET  /setup        — WiFi setup page
 """
 import socket
@@ -96,52 +96,77 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
 <div class="kpi-value" id="ratioCount" style="color:#f59e0b">0%</div>
 <div class="kpi-label">Block Ratio</div>
 </div>
+
+<div class="glass-card animate-in cascade-5">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+<span class="kpi-icon" style="background:rgba(99,102,241,0.15);color:#818cf8" data-lucide="list"></span>
+</div>
+<div class="kpi-value" id="entriesCount" style="font-size:22px">0</div>
+<div class="kpi-label">Blocked Domains</div>
+</div>
 </div>
 
 <!-- Charts + System -->
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
-<div class="glass-card animate-in cascade-5">
+<div class="glass-card animate-in cascade-6">
 <h3 style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.5px">Block vs Allowed</h3>
 <div class="chart-container">
 <canvas id="donutChart"></canvas>
 </div>
 </div>
 
-<div class="glass-card animate-in cascade-5">
-<h3 style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:16px;text-transform:uppercase;letter-spacing:0.5px">System Info</h3>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:12px">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-<span data-lucide="memory-stick" style="width:14px;height:14px;color:#818cf8"></span>
-<span style="font-size:12px;color:#94a3b8">Heap</span>
-</div>
-<div style="font-size:16px;font-weight:700;font-family:monospace" id="ramValue">--</div>
-<div style="font-size:11px;color:#64748b;margin-top:2px" id="ramFree">-- free</div>
-<div style="width:100%;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:4px"><div style="height:100%;border-radius:2px;background:#818cf8;transition:width 0.5s" id="ramBar"></div></div>
-</div>
-<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:12px">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-<span data-lucide="thermometer" style="width:14px;height:14px;color:#f59e0b"></span>
-<span style="font-size:12px;color:#94a3b8">CPU Temp</span>
-</div>
-<div style="font-size:20px;font-weight:700;font-family:monospace" id="tempValue">--</div>
-</div>
-<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:12px">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-<span data-lucide="clock" style="width:14px;height:14px;color:#22c55e"></span>
-<span style="font-size:12px;color:#94a3b8">Uptime</span>
-</div>
-<div style="font-size:20px;font-weight:700;font-family:monospace" id="uptimeValue">--</div>
-</div>
-<div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:12px">
-<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-<span data-lucide="wifi" style="width:14px;height:14px;color:#22c55e"></span>
-<span style="font-size:12px;color:#94a3b8">IP Address</span>
-</div>
-<div style="font-size:16px;font-weight:700;font-family:monospace;word-break:break-all" id="ipValue">--</div>
-</div>
-</div>
-</div>
+ <div class="glass-card animate-in cascade-6">
+ <h3 style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:16px;text-transform:uppercase;letter-spacing:0.5px">System Info</h3>
+ <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+ <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px">
+ <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+ <span data-lucide="memory-stick" style="width:13px;height:13px;color:#818cf8"></span>
+ <span style="font-size:11px;color:#94a3b8">RAM (GC heap)</span>
+ </div>
+ <div style="font-size:14px;font-weight:700;font-family:monospace" id="ramValue">--</div>
+ <div style="font-size:10px;color:#64748b;margin-top:1px" id="ramFree">-- free (<span id="ramPct">0</span>%)</div>
+ <div style="width:100%;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:4px"><div style="height:100%;border-radius:2px;background:#818cf8;transition:width 0.5s" id="ramBar"></div></div>
+ </div>
+ <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px">
+ <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+ <span data-lucide="hard-drive" style="width:13px;height:13px;color:#22c55e"></span>
+ <span style="font-size:11px;color:#94a3b8">Flash (FS)</span>
+ </div>
+ <div style="font-size:14px;font-weight:700;font-family:monospace" id="flashValue">--</div>
+ <div style="font-size:10px;color:#64748b;margin-top:1px" id="flashFree">-- free (<span id="flashPct">0</span>%)</div>
+ <div style="width:100%;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:4px"><div style="height:100%;border-radius:2px;background:#22c55e;transition:width 0.5s" id="flashBar"></div></div>
+ </div>
+ <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px">
+ <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+ <span data-lucide="cpu" style="width:13px;height:13px;color:#f59e0b"></span>
+ <span style="font-size:11px;color:#94a3b8">CPU</span>
+ </div>
+ <div style="font-size:14px;font-weight:700;font-family:monospace" id="cpuValue">-- MHz</div>
+ <div style="font-size:10px;color:#64748b;margin-top:1px" id="coreValue">-- cores</div>
+ </div>
+ <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px">
+ <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+ <span data-lucide="thermometer" style="width:13px;height:13px;color:#f59e0b"></span>
+ <span style="font-size:11px;color:#94a3b8">CPU Temp</span>
+ </div>
+ <div style="font-size:16px;font-weight:700;font-family:monospace" id="tempValue">--</div>
+ </div>
+ <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px">
+ <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+ <span data-lucide="clock" style="width:13px;height:13px;color:#22c55e"></span>
+ <span style="font-size:11px;color:#94a3b8">Uptime</span>
+ </div>
+ <div style="font-size:16px;font-weight:700;font-family:monospace" id="uptimeValue">--</div>
+ </div>
+ <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px">
+ <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+ <span data-lucide="wifi" style="width:13px;height:13px;color:#22c55e"></span>
+ <span style="font-size:11px;color:#94a3b8">IP Address</span>
+ </div>
+ <div style="font-size:14px;font-weight:700;font-family:monospace;word-break:break-all" id="ipValue">--</div>
+ </div>
+ </div>
+ </div>
 </div>
 
 <!-- Top Blocked -->
@@ -185,6 +210,7 @@ function updateDashboard(data){
   document.getElementById('blockedCount').textContent=formatNum(data.blocked)
   document.getElementById('allowedCount').textContent=formatNum(data.allowed)
   document.getElementById('ratioCount').textContent=data.ratio+'%'
+  document.getElementById('entriesCount').textContent=formatNum(data.blocklist_entries||0)
   document.getElementById('totalLabel').textContent=data.blocked+' blocked'
   document.getElementById('liveLabel').textContent=data.total+' queries'
 
@@ -194,10 +220,11 @@ function updateDashboard(data){
     recentEl.innerHTML='<div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">Waiting for queries...</div>'
   }else{
     recentEl.innerHTML=data.recent.slice(-10).reverse().map(function(r){
-      const domain=r[0],blocked=r[1],cat=r[2],age=r[3]
+      const domain=r[0],blocked=r[1],cat=r[2],age=r[3],layer=r[4]
       const timeStr=age<3?'now':age<60?age+'s':Math.floor(age/60)+'m'
       const catBadge=blocked&&cat?' <span style="font-size:9px;padding:1px 4px;border-radius:3px;background:rgba(99,102,241,0.15);color:#818cf8;margin-left:2px">'+cat+'</span>':''
-      return '<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:13px"><span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;'+(blocked?'background:rgba(239,68,68,0.15);color:#ef4444':'background:rgba(34,197,94,0.15);color:#22c55e')+'">'+(blocked?'BLOCK':'PASS')+'</span>'+catBadge+'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+domain+'</span><span style="color:#64748b;font-size:11px">'+timeStr+'</span></div>'
+      const layerBadge=blocked&&layer?' <span style="font-size:9px;padding:1px 4px;border-radius:3px;background:rgba(245,158,11,0.15);color:#f59e0b;margin-left:2px">'+layer+'</span>':''
+      return '<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:13px"><span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;'+(blocked?'background:rgba(239,68,68,0.15);color:#ef4444':'background:rgba(34,197,94,0.15);color:#22c55e')+'">'+(blocked?'BLOCK':'PASS')+'</span>'+catBadge+layerBadge+'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+domain+'</span><span style="color:#64748b;font-size:11px">'+timeStr+'</span></div>'
     }).join('')
   }
 
@@ -213,9 +240,24 @@ function updateDashboard(data){
   const usedKB=Math.round((data.alloc_ram||0)/1024)
   const freeKB=Math.round((data.free_ram||0)/1024)
   const pct=totalKB?Math.round(usedKB/totalKB*100):0
-  document.getElementById('ramValue').textContent=usedKB+'K / '+totalKB+'K'
-  document.getElementById('ramFree').textContent=freeKB+'K free'
+  document.getElementById('ramValue').textContent=usedKB+'KB / '+totalKB+'KB'
+  document.getElementById('ramFree').textContent=freeKB+'KB free'
+  document.getElementById('ramPct').textContent=pct
   document.getElementById('ramBar').style.width=Math.min(pct,100)+'%'
+
+  const ft=Math.round((data.flash_total||0)/1024)
+  const ff=Math.round((data.flash_free||0)/1024)
+  const fc=Math.round((data.flash_chip||0)/1024)
+  const fu=ft-ff
+  const fp=ft?Math.round(fu/ft*100):0
+  document.getElementById('flashValue').textContent=fu+'KB / '+ft+'KB'
+  document.getElementById('flashFree').textContent=ff+'KB free (chip: '+fc+'KB)'
+  document.getElementById('flashPct').textContent=fp
+  document.getElementById('flashBar').style.width=Math.min(fp,100)+'%'
+
+  document.getElementById('cpuValue').textContent=(data.cpu_freq||240)+' MHz'
+  document.getElementById('coreValue').textContent=(data.core_count||2)+' cores'
+
   document.getElementById('ipValue').textContent=data.ip||'--'
   if(data.cpu_temp&&data.cpu_temp<100){document.getElementById('tempValue').textContent=data.cpu_temp+'°C'}else{document.getElementById('tempValue').textContent='--'}
 
@@ -280,12 +322,14 @@ lucide.createIcons()
 
 class WebServer:
     def __init__(self, stats, ip="0.0.0.0", port=80):
+        """Khởi tạo web server với stats và địa chỉ IP."""
         self.stats = stats
         self.ip = ip
         self.port = port
         self.sock = None
 
     def start(self):
+        """Mở socket TCP, bind, listen với timeout 1s."""
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind((self.ip, self.port))
@@ -294,6 +338,7 @@ class WebServer:
         print(f"Web server on port {self.port}")
 
     def serve(self, wifi_manager=None):
+        """Vòng lặp chính: chấp nhận kết nối, xử lý request, đóng."""
         self.start()
         while True:
             try:
@@ -312,6 +357,7 @@ class WebServer:
                     pass
 
     def _handle(self, conn, wifi_manager):
+        """Parse HTTP request header và điều hướng đến handler phù hợp."""
         try:
             buf = conn.recv(1024)
             if not buf:
@@ -344,6 +390,7 @@ class WebServer:
             print("Handle error:", e)
 
     def _handle_post(self, conn, data, path, wifi_manager):
+        """Xử lý POST request: config wifi, reboot, reset, dhcp."""
         request = data.decode("utf-8")
         if path == "/api/config/wifi":
             body = self._parse_body(request)
@@ -392,6 +439,7 @@ class WebServer:
         else:
             self._send_json(conn, {"ok": False, "error": "unknown endpoint"})
     def _handle_upload(self, conn, data):
+        """Nhận file blocked.bin mới qua HTTP, ghi trực tiếp vào flash (stream)."""
         try:
             header_end = data.find(b"\r\n\r\n")
             if header_end == -1:
@@ -432,6 +480,7 @@ class WebServer:
 
     @staticmethod
     def _parse_body(request):
+        """Giải nén body JSON từ HTTP request."""
         parts = request.split("\r\n\r\n", 1)
         if len(parts) < 2:
             return {}
@@ -441,10 +490,13 @@ class WebServer:
             return {}
 
     def _build_stats(self, wifi_manager):
+        """Xây dựng dict stats JSON, thêm cpu_temp và IP."""
         if self.stats is None:
             d = {"total": 0, "blocked": 0, "allowed": 0, "ratio": 0,
                  "uptime": 0, "free_ram": 0, "alloc_ram": 0, "total_ram": 0,
-                 "last_blocked": "", "recent": [], "cpu_temp": None, "ip": "", "top": []}
+                 "last_blocked": "", "recent": [], "cpu_temp": None, "ip": "",
+                 "top": [], "flash_free": 0, "flash_total": 0, "flash_chip": 0,
+                 "blocklist_entries": 0, "cpu_freq": 0, "core_count": 0}
             if wifi_manager and wifi_manager.is_connected():
                 try:
                     d["ip"] = wifi_manager.ifconfig()[0]
@@ -463,6 +515,7 @@ class WebServer:
 
     @staticmethod
     def _get_cpu_temp():
+        """Đọc nhiệt độ CPU từ cảm biến trong ESP32, trả về °C."""
         try:
             import esp32
             raw = esp32.raw_temperature()
@@ -474,6 +527,7 @@ class WebServer:
 
     @staticmethod
     def _send_json(conn, data):
+        """Gửi HTTP response dạng JSON."""
         body = json.dumps(data)
         resp = (
             "HTTP/1.1 200 OK\r\n"
@@ -487,6 +541,7 @@ class WebServer:
 
     @staticmethod
     def _send_html(conn, html):
+        """Gửi HTTP response dạng HTML."""
         resp = (
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: text/html; charset=utf-8\r\n"
@@ -498,6 +553,7 @@ class WebServer:
 
     @staticmethod
     def _config_html(wifi_manager=None):
+        """Tạo HTML trang setup WiFi + No-IP DDNS."""
         ip = ""
         try:
             if wifi_manager and wifi_manager.is_connected():
@@ -599,6 +655,7 @@ Save & Reboot
 
     @staticmethod
     def _redirect(conn, path="/"):
+        """Gửi HTTP redirect 302."""
         body = f"<html><body><script>window.location='{path}'</script></body></html>"
         resp = (
             "HTTP/1.1 302 Found\r\n"

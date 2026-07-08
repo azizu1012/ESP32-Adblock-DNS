@@ -1,7 +1,7 @@
-"""No-IP Dynamic DNS updater.
+"""Cập nhật Dynamic DNS No-IP.
 
-Reads credentials from wifi_config.json (noip_user/pass/host).
-Runs every 12 hours via tick().
+Đọc thông tin đăng nhập từ wifi_config.json (noip_user/pass/host).
+Chạy mỗi 12 giờ qua tick().
 """
 import socket
 import time
@@ -13,19 +13,23 @@ class DDNSUpdater:
     INTERVAL = 43200
 
     def __init__(self):
+        """Khởi tạo với last_run = 0 (sẽ chạy ngay lần tick đầu)."""
         self.last_run = 0
 
     def update(self, cfg=None):
+        """Gửi request cập nhật IP lên No-IP ngay lập tức."""
         if cfg is None:
             cfg = ConfigManager.load()
         self._noip(cfg)
         self.last_run = time.time()
 
     def tick(self, cfg=None):
+        """Kiểm tra và cập nhật nếu đã quá INTERVAL (12h)."""
         if time.time() - self.last_run > self.INTERVAL:
             self.update(cfg)
 
     def _noip(self, cfg):
+        """Tạo socket HTTP và gửi GET request tới No-IP API để cập nhật IP."""
         user = cfg.get("noip_user", "")
         password = cfg.get("noip_pass", "")
         hostname = cfg.get("noip_host", "")

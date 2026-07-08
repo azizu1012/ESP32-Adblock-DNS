@@ -22,8 +22,7 @@
 │   └── blocked.bin   Generated hash file (230K entries)
 ├── tools/
 │   ├── process_blocked.py       Build blocked.bin from lists
-│   ├── generate_blocked_bin.ps1 Download + generate (Windows)
-│   └── upload_fix.py            Serial upload tool
+│   └── generate_blocked_bin.ps1 Download + generate (Windows)
 ├── tests/
 │   └── test_core.py             15 unit tests
 └── docs/
@@ -62,19 +61,26 @@ python tools/process_blocked.py <input_dir> <output_dir>
 
 ### Serial (first time or recovery)
 
-```bash
-# Upload all firmware files + blocked.bin
-python tools/upload_fix.py
+Dùng Thonny IDE hoặc `rshell`/`ampy` để upload từng file lên ESP32:
 
-# Or with custom port:
-python tools/upload_fix.py COM5
+```bash
+# Ví dụ với ampy
+ampy --port COM3 put firmware/boot.py
+ampy --port COM3 put firmware/dns.py
+ampy --port COM3 put firmware/stats.py
+ampy --port COM3 put firmware/server.py
+ampy --port COM3 put firmware/wifi.py
+ampy --port COM3 put firmware/config.py
+ampy --port COM3 put firmware/ddns.py
+ampy --port COM3 put firmware/blocked.bin
 ```
 
 ### HTTP (blocked.bin update only)
 
 ```bash
-curl --data-binary @firmware/blocked.bin http://<esp32-ip>/api/upload
-curl -X POST http://<esp32-ip>/api/reboot
+# Upload via curl (replace IP with your ESP32's address)
+curl --data-binary @firmware/blocked.bin http://192.168.1.234/api/upload
+curl -X POST http://192.168.1.234/api/reboot
 ```
 
 ## Blocklist Sources
@@ -92,3 +98,9 @@ curl -X POST http://<esp32-ip>/api/reboot
   ~6 expected collisions at 243K domains.
 - Subdomain dedup is safe: if `doubleclick.net` is blocked, every DNS
   query to `*.doubleclick.net` returns `0.0.0.0` anyway.
+- IPv6 AAAA queries are intercepted and return `::1` (16 zero bytes).
+- The ESP32-D0WD-V3 has 2 cores @ 240 MHz, ~520 KB SRAM (GC heap ~134 KB),
+  and 4 MB flash (2 MB LittleFS partition).
+- Boot sequence: factory reset check → WiFi connect (30s timeout, static IP
+  192.168.1.234) → DNS + web threads → main loop with crash recovery
+  (try/except + machine.reset()).

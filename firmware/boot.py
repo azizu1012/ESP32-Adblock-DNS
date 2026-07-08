@@ -1,10 +1,10 @@
 """Entry point: WiFi connect, DNS + Web threads, LED heartbeat.
 
 Boot sequence:
-1. Check BOOT button hold (3s) → factory reset
-2. Load wifi_config.json → connect to WiFi
-3. On success: start DNS proxy + web server in threads
-4. On failure: start AP mode for setup
+1. Kiểm tra nút BOOT giữ 3s → factory reset
+2. Đọc wifi_config.json → kết nối WiFi
+3. Thành công: chạy DNS proxy + web server trên luồng riêng
+4. Thất bại: bật chế độ AP để cấu hình
 """
 import time
 import machine
@@ -23,15 +23,18 @@ led_timer = Timer(0)
 
 
 def led_off(t):
+    """Tắt LED — callback timer."""
     led.value(0)
 
 
 def blink(duration=70):
+    """Nhấp nháy LED trong `duration` ms, dùng timer one-shot."""
     led.value(1)
     led_timer.init(period=duration, mode=Timer.ONE_SHOT, callback=led_off)
 
 
 def handle_boot_button():
+    """Kiểm tra nút BOOT: giữ 3 giây → xoá config + reset."""
     if boot_btn.value() == 0:
         print("BOOT pressed")
         start = time.time()
@@ -70,15 +73,25 @@ if cfg.get("ssid") and wifi.connect(cfg):
     ddns = DDNSUpdater()
     last_hb = time.time()
     while True:
-        handle_boot_button()
-        now = time.time()
-        if now - last_hb >= 5:
-            last_hb = now
-            blink(30)
-        if dns.poll():
-            blink()
-        stats.tick()
-        ddns.tick(cfg)
+        try:
+            handle_boot_button()
+            now = time.time()
+            if now - last_hb >= 5:
+                last_hb = now
+                blink(30)
+            try:
+                if dns.poll():
+                    blink()
+            except Exception as inner:
+                print("DNS poll error:", inner)
+            stats.tick()
+            ddns.tick(cfg)
+        except Exception as e:
+            import sys
+            sys.print_exception(e)
+            stats.save()
+            time.sleep(3)
+            machine.reset()
 else:
     led.value(1)
     ap_ip = wifi.start_ap()
