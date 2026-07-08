@@ -19,7 +19,10 @@ class DNSServer:
     UPSTREAM = "1.1.1.1"
     PORT = 53
     BLOCKED_BIN = "blocked.bin"
-    SAFELIST = ("adwords.google.com", "adidas.com")
+    SAFELIST = (
+        "adwords.google.com", "adidas.com",
+        "cdn.jsdelivr.net", "unpkg.com", "cdn.tailwindcss.com",
+    )
     KEYWORDS = (
         "telemetry", "analytics", "adserver", "adsystem",
         "doubleclick", "adcolony", "applovin", "popunder",

@@ -123,18 +123,18 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
  <span data-lucide="memory-stick" style="width:13px;height:13px;color:#818cf8"></span>
  <span style="font-size:11px;color:#94a3b8">RAM (GC heap)</span>
  </div>
- <div style="font-size:14px;font-weight:700;font-family:monospace" id="ramValue">--</div>
- <div style="font-size:10px;color:#64748b;margin-top:1px" id="ramFree">-- free (<span id="ramPct">0</span>%)</div>
- <div style="width:100%;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:4px"><div style="height:100%;border-radius:2px;background:#818cf8;transition:width 0.5s" id="ramBar"></div></div>
- </div>
- <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px">
- <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
- <span data-lucide="hard-drive" style="width:13px;height:13px;color:#22c55e"></span>
- <span style="font-size:11px;color:#94a3b8">Flash (FS)</span>
- </div>
- <div style="font-size:14px;font-weight:700;font-family:monospace" id="flashValue">--</div>
- <div style="font-size:10px;color:#64748b;margin-top:1px" id="flashFree">-- free (<span id="flashPct">0</span>%)</div>
- <div style="width:100%;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:4px"><div style="height:100%;border-radius:2px;background:#22c55e;transition:width 0.5s" id="flashBar"></div></div>
+  <div style="font-size:14px;font-weight:700;font-family:monospace" id="ramValue">--</div>
+  <div style="font-size:10px;color:#64748b;margin-top:1px"><span id="ramFree">--</span> free (<span id="ramPct">0</span>%)</div>
+  <div style="width:100%;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:4px"><div style="height:100%;border-radius:2px;background:#818cf8;transition:width 0.5s" id="ramBar"></div></div>
+  </div>
+  <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px">
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+  <span data-lucide="hard-drive" style="width:13px;height:13px;color:#22c55e"></span>
+  <span style="font-size:11px;color:#94a3b8">Flash (FS)</span>
+  </div>
+  <div style="font-size:14px;font-weight:700;font-family:monospace" id="flashValue">--</div>
+  <div style="font-size:10px;color:#64748b;margin-top:1px"><span id="flashFree">--</span> free (chip: <span id="flashChip">--</span>, <span id="flashPct">0</span>%)</div>
+  <div style="width:100%;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:4px"><div style="height:100%;border-radius:2px;background:#22c55e;transition:width 0.5s" id="flashBar"></div></div>
  </div>
  <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px">
  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
@@ -242,7 +242,7 @@ function updateDashboard(data){
   const freeKB=Math.round((data.free_ram||0)/1024)
   const pct=totalKB?Math.round(usedKB/totalKB*100):0
   document.getElementById('ramValue').textContent=usedKB+'KB / '+totalKB+'KB'
-  document.getElementById('ramFree').textContent=freeKB+'KB free'
+  document.getElementById('ramFree').textContent=freeKB+'KB'
   document.getElementById('ramPct').textContent=pct
   document.getElementById('ramBar').style.width=Math.min(pct,100)+'%'
 
@@ -252,7 +252,8 @@ function updateDashboard(data){
   const fu=ft-ff
   const fp=ft?Math.round(fu/ft*100):0
   document.getElementById('flashValue').textContent=fu+'KB / '+ft+'KB'
-  document.getElementById('flashFree').textContent=ff+'KB free (chip: '+fc+'KB)'
+  document.getElementById('flashFree').textContent=ff+'KB'
+  document.getElementById('flashChip').textContent=fc+'KB'
   document.getElementById('flashPct').textContent=fp
   document.getElementById('flashBar').style.width=Math.min(fp,100)+'%'
 
@@ -263,44 +264,48 @@ function updateDashboard(data){
   if(data.cpu_temp&&data.cpu_temp<100){document.getElementById('tempValue').textContent=data.cpu_temp+'°C'}else{document.getElementById('tempValue').textContent='--'}
 
   // Donut chart
-  const hasData = (data.blocked > 0 || data.allowed > 0);
-  const chartData = hasData ? [data.blocked, data.allowed] : [0, 1];
-  const chartColors = hasData ? ['rgba(239,68,68,0.8)','rgba(34,197,94,0.8)'] : ['rgba(239,68,68,0.1)','rgba(255,255,255,0.05)'];
-  const chartBorders = hasData ? ['#ef4444','#22c55e'] : ['rgba(259,68,68,0.1)','rgba(255,255,255,0.1)'];
+  try{
+    const hasData = (data.blocked > 0 || data.allowed > 0);
+    const chartData = hasData ? [data.blocked, data.allowed] : [0, 1];
+    const chartColors = hasData ? ['rgba(239,68,68,0.8)','rgba(34,197,94,0.8)'] : ['rgba(239,68,68,0.1)','rgba(255,255,255,0.05)'];
+    const chartBorders = hasData ? ['#ef4444','#22c55e'] : ['rgba(259,68,68,0.1)','rgba(255,255,255,0.1)'];
 
-  if(!donutChart){
-    const ctx=document.getElementById('donutChart').getContext('2d')
-    donutChart=new Chart(ctx,{
-      type:'doughnut',
-      data:{
-        labels:['Blocked','Allowed'],
-        datasets:[{
-          data:chartData,
-          backgroundColor:chartColors,
-          borderColor:chartBorders,
-          borderWidth:2,
-          hoverOffset:8
-        }]
-      },
-      options:{
-        responsive:true,
-        maintainAspectRatio:false,
-        cutout:'70%',
-        plugins:{
-          legend:{
-            position:'bottom',
-            labels:{color:'#94a3b8',padding:12,usePointStyle:true,font:{size:12}}
+    if(typeof Chart !== 'undefined'){
+      if(!donutChart){
+        const ctx=document.getElementById('donutChart').getContext('2d')
+        donutChart=new Chart(ctx,{
+          type:'doughnut',
+          data:{
+            labels:['Blocked','Allowed'],
+            datasets:[{
+              data:chartData,
+              backgroundColor:chartColors,
+              borderColor:chartBorders,
+              borderWidth:2,
+              hoverOffset:8
+            }]
+          },
+          options:{
+            responsive:true,
+            maintainAspectRatio:false,
+            cutout:'70%',
+            plugins:{
+              legend:{
+                position:'bottom',
+                labels:{color:'#94a3b8',padding:12,usePointStyle:true,font:{size:12}}
+              }
+            },
+            animation:{animateRotate:true,duration:800}
           }
-        },
-        animation:{animateRotate:true,duration:800}
+        })
+      }else{
+        donutChart.data.datasets[0].data=chartData
+        donutChart.data.datasets[0].backgroundColor=chartColors
+        donutChart.data.datasets[0].borderColor=chartBorders
+        donutChart.update()
       }
-    })
-  }else{
-    donutChart.data.datasets[0].data=chartData
-    donutChart.data.datasets[0].backgroundColor=chartColors
-    donutChart.data.datasets[0].borderColor=chartBorders
-    donutChart.update()
-  }
+    }
+  }catch(e){console.error(e)}
 
   // Top blocked
   const topEl=document.getElementById('topList')
