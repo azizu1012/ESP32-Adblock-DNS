@@ -576,15 +576,22 @@ class WebServer:
 
     @staticmethod
     def _send_html(conn, html):
-        """Gửi HTTP response dạng HTML."""
-        resp = (
+        """Gửi HTTP response dạng HTML bằng chunking để tránh tràn RAM."""
+        header = (
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: text/html; charset=utf-8\r\n"
             "Connection: close\r\n"
             f"Content-Length: {len(html)}\r\n"
-            "\r\n" + html
+            "\r\n"
         )
-        conn.sendall(resp.encode())
+        conn.sendall(header.encode())
+        
+        chunk_size = 4096
+        for i in range(0, len(html), chunk_size):
+            chunk = html[i : i + chunk_size]
+            conn.sendall(chunk.encode())
+            import gc
+            gc.collect()
 
     @staticmethod
     def _config_html(wifi_manager=None):
