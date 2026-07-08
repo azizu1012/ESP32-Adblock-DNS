@@ -6,7 +6,8 @@ Blocking layers (in order):
 3. Keyword — telemetry/analytics/doubleclick...
 4. Binary search — FNV-1a 32-bit hash against blocked.bin
 
-Unblocked queries are proxied upstream to 1.1.1.1.
+GC threshold set at init; collect every 100 polls to avoid
+stop-the-world on every query.
 """
 import socket
 import struct
@@ -28,6 +29,8 @@ class DNSServer:
         self.stats = stats
         self.sock = None
         self.upstream = None
+        self._gc_cnt = 0
+        gc.threshold(gc.mem_free() // 4 + gc.mem_alloc())
 
     def start(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -42,6 +45,7 @@ class DNSServer:
     def poll(self):
         readable, _, _ = select.select([self.sock], [], [], 1.0)
         if not readable:
+            self._gc_tick()
             return False
         request, addr = self.sock.recvfrom(512)
         if len(request) < 12:
@@ -58,8 +62,13 @@ class DNSServer:
                 self._proxy(request, addr)
         else:
             self._proxy(request, addr)
-        gc.collect()
+        self._gc_tick()
         return blocked
+
+    def _gc_tick(self):
+        self._gc_cnt = (self._gc_cnt + 1) % 100
+        if self._gc_cnt == 0:
+            gc.collect()
 
     def _parse_domain(self, data):
         try:
