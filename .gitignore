@@ -6,3 +6,4 @@ tests/__pycache__/
 data/
 *.log
 .codegraph/
+AGENTS.md
