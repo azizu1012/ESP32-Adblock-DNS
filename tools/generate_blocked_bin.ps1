@@ -25,3 +25,11 @@ Write-Host "Generating blocked.bin..."
 
 Remove-Item -Recurse -Force $TmpDir -ErrorAction SilentlyContinue
 Write-Host "Done. blocked.bin written to $FirmwareDir"
+
+$EspIp = Read-Host "`nEnter ESP32 IP Address to upload via WiFi (press Enter to skip)"
+if ($EspIp) {
+    Write-Host "Uploading blocked.bin to http://$EspIp/api/upload ..."
+    curl.exe -X POST -T "$FirmwareDir\blocked.bin" "http://$EspIp/api/upload"
+    Write-Host "`nUpload completed!"
+}
+
