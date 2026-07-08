@@ -75,12 +75,13 @@ class DNSServer:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(timeout_ms / 1000.0)
         try:
-            t0 = time.ticks_ms()
+            t0 = time.ticks_us()
             q = b'\xaa\xbb\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x06google\x03com\x00\x00\x01\x00\x01'
             sock.sendto(q, (ip, 53))
             resp, _ = sock.recvfrom(512)
             if resp and resp[:2] == b'\xaa\xbb':
-                return time.ticks_diff(time.ticks_ms(), t0)
+                dt_us = time.ticks_diff(time.ticks_us(), t0)
+                return round(dt_us / 1000.0, 1)
         except:
             pass
         finally:
@@ -435,15 +436,16 @@ class DNSServer:
                         del self.safelist_dyn[domain]
                 self.query_counts[domain] = (0, now_sec)
 
-        t0 = time.ticks_ms()
-        self.last_query_ticks = t0
+        t0_us = time.ticks_us()
+        self.last_query_ticks = time.ticks_ms()
         try:
             self.upstream.sendto(request, (self.upstream_ip, self.PORT))
             response, _ = self.upstream.recvfrom(1024)
             self.sock.sendto(response, addr)
             
             # Đo RTT
-            rtt = time.ticks_diff(time.ticks_ms(), t0)
+            dt_us = time.ticks_diff(time.ticks_us(), t0_us)
+            rtt = round(dt_us / 1000.0, 1)
             self.upstream_rtt = rtt
             self.stats.upstream_rtt = rtt
             
