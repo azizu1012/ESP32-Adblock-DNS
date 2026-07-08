@@ -88,7 +88,7 @@ class Stats:
 
     @property
     def uptime(self):
-        return int(time() - self.start_time)
+        return max(0, int(time() - self.start_time))
 
     @staticmethod
     def free_ram():
