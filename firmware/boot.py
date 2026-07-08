@@ -7,8 +7,9 @@ Boot sequence:
 4. Thất bại: bật chế độ AP để cấu hình
 """
 import time
+import gc
 import machine
-from machine import Pin, Timer
+from machine import Pin, Timer, WDT
 import _thread
 from config import ConfigManager
 from wifi import WiFiManager
@@ -70,6 +71,7 @@ if cfg.get("ssid") and wifi.connect(cfg):
     dns.start()
     print("System ready!")
 
+    wdt = WDT(timeout=30_000)
     ddns = DDNSUpdater()
     last_hb = time.time()
     while True:
@@ -84,8 +86,13 @@ if cfg.get("ssid") and wifi.connect(cfg):
                     blink()
             except Exception as inner:
                 print("DNS poll error:", inner)
+            if not wifi.is_connected():
+                print("WiFi lost, reconnecting...")
+                wifi.connect(cfg)
             stats.tick()
             ddns.tick(cfg)
+            wdt.feed()
+            gc.collect()
         except Exception as e:
             import sys
             sys.print_exception(e)

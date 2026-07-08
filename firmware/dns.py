@@ -63,7 +63,9 @@ class DNSServer:
             is_blocked, layer = self._check(domain)
             if is_blocked:
                 self.stats.add(domain, True, layer)
-                self.sock.sendto(self._block_response(request), addr)
+                resp = self._block_response(request)
+                if resp:
+                    self.sock.sendto(resp, addr)
                 blocked = True
             else:
                 self.stats.add(domain, False)
@@ -151,23 +153,26 @@ class DNSServer:
     @staticmethod
     def _block_response(request):
         """Tạo DNS response giả chặn domain: A → 0.0.0.0, AAAA → ::1."""
-        tx_id = request[0:2]
-        flags = b"\x81\x80"
-        counts = b"\x00\x01\x00\x01\x00\x00\x00\x00"
-        offset = 12
-        while True:
-            length = request[offset]
-            if length == 0:
-                offset += 1
-                break
-            offset += 1 + length
-        qtype = request[offset : offset + 2]
-        question = request[12 : offset + 4]
-        if qtype == b"\x00\x1c":
-            answer = b"\xc0\x0c\x00\x1c\x00\x01\x00\x00\x01\x2c\x00\x10" + b"\x00" * 16
-        else:
-            answer = b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x01\x2c\x00\x04\x00\x00\x00\x00"
-        return tx_id + flags + counts + question + answer
+        try:
+            tx_id = request[0:2]
+            flags = b"\x81\x80"
+            counts = b"\x00\x01\x00\x01\x00\x00\x00\x00"
+            offset = 12
+            while True:
+                length = request[offset]
+                if length == 0:
+                    offset += 1
+                    break
+                offset += 1 + length
+            qtype = request[offset : offset + 2]
+            question = request[12 : offset + 4]
+            if qtype == b"\x00\x1c":
+                answer = b"\xc0\x0c\x00\x1c\x00\x01\x00\x00\x01\x2c\x00\x10" + b"\x00" * 16
+            else:
+                answer = b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x01\x2c\x00\x04\x00\x00\x00\x00"
+            return tx_id + flags + counts + question + answer
+        except:
+            return b""
 
     def _proxy(self, request, addr):
         """Chuyển tiếp DNS request lên upstream (1.1.1.1) và gửi response về client."""
@@ -176,4 +181,9 @@ class DNSServer:
             response, _ = self.upstream.recvfrom(1024)
             self.sock.sendto(response, addr)
         except:
-            pass
+            try:
+                self.upstream.close()
+            except:
+                pass
+            self.upstream = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.upstream.settimeout(2.0)

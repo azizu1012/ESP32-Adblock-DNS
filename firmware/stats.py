@@ -4,7 +4,7 @@ Theo dõi tổng số/chặn, hoạt động gần đây, top domain bị chặn
 Dữ liệu lưu vào stats.json mỗi 30s. Mục cũ (day < today-7)
 bị xoá tự động khi load/save.
 """
-import gc, json, os
+import gc, json, os, _thread
 from time import time
 
 
@@ -35,6 +35,7 @@ def categorize(domain):
 class Stats:
     def __init__(self):
         """Khởi tạo stats, xoá sạch và load từ file."""
+        self.lock = _thread.allocate_lock()
         self.dirty = False
         self.last_save = 0
         self.reset()
@@ -55,19 +56,23 @@ class Stats:
 
     def add(self, domain, is_blocked, layer=None):
         """Ghi nhận một truy vấn: tăng bộ đếm, cập nhật top và recent."""
-        self.total += 1
-        if is_blocked:
-            self.blocked += 1
-            self.last_blocked = domain
-            today = self._today
-            if domain in self.top:
-                self.top[domain]["c"] += 1
-            else:
-                self.top[domain] = {"c": 1, "d": today}
-            self.dirty = True
-        self.recent.append((domain, is_blocked, layer, time()))
-        if len(self.recent) > 100:
-            self.recent = self.recent[-50:]
+        self.lock.acquire()
+        try:
+            self.total += 1
+            if is_blocked:
+                self.blocked += 1
+                self.last_blocked = domain
+                today = self._today
+                if domain in self.top:
+                    self.top[domain]["c"] += 1
+                else:
+                    self.top[domain] = {"c": 1, "d": today}
+                self.dirty = True
+            self.recent.append((domain, is_blocked, layer, time()))
+            if len(self.recent) > 100:
+                self.recent = self.recent[-50:]
+        finally:
+            self.lock.release()
 
     @property
     def allowed(self):
@@ -131,9 +136,10 @@ class Stats:
         """Ghi stats.json nếu có thay đổi (dirty flag)."""
         if not self.dirty:
             return
-        self.dirty = False
-        self._cleanup()
+        self.lock.acquire()
         try:
+            self.dirty = False
+            self._cleanup()
             data = {}
             for domain, val in self.top.items():
                 data[domain] = val
@@ -143,6 +149,8 @@ class Stats:
             self.last_save = time()
         except:
             pass
+        finally:
+            self.lock.release()
 
     def tick(self):
         """Tự động lưu nếu dirty hơn 30 giây."""
@@ -205,23 +213,27 @@ class Stats:
 
     def to_dict(self):
         """Xuất toàn bộ thống kê dạng dict để serve JSON API."""
+        self.lock.acquire()
         now = time()
-        return {
-            "total": self.total,
-            "blocked": self.blocked,
-            "allowed": self.allowed,
-            "ratio": self.ratio,
-            "uptime": self.uptime,
-            "free_ram": self.free_ram(),
-            "alloc_ram": self.alloc_ram(),
-            "total_ram": self.total_ram(),
-            "last_blocked": self.last_blocked,
-            "recent": [(d, b, categorize(d) if b else "", int(now - t), layer) for d, b, layer, t in self.recent[-20:]],
-            "top": [{"d": d, "c": v["c"], "g": categorize(d)} for d, v in self.top_blocked(10)],
-            "flash_free": self.flash_free(),
-            "flash_total": self.flash_total(),
-            "flash_chip": self.flash_chip(),
-            "blocklist_entries": self.blocked_count(),
-            "cpu_freq": self.cpu_freq(),
-            "core_count": self.core_count(),
-        }
+        try:
+            return {
+                "total": self.total,
+                "blocked": self.blocked,
+                "allowed": self.allowed,
+                "ratio": self.ratio,
+                "uptime": self.uptime,
+                "free_ram": self.free_ram(),
+                "alloc_ram": self.alloc_ram(),
+                "total_ram": self.total_ram(),
+                "last_blocked": self.last_blocked,
+                "recent": [(d, b, categorize(d) if b else "", int(now - t), layer) for d, b, layer, t in self.recent[-20:]],
+                "top": [{"d": d, "c": v["c"], "g": categorize(d)} for d, v in self.top_blocked(10)],
+                "flash_free": self.flash_free(),
+                "flash_total": self.flash_total(),
+                "flash_chip": self.flash_chip(),
+                "blocklist_entries": self.blocked_count(),
+                "cpu_freq": self.cpu_freq(),
+                "core_count": self.core_count(),
+            }
+        finally:
+            self.lock.release()
