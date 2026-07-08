@@ -228,6 +228,10 @@ class DNSServer:
 
     def _check(self, domain):
         """Kiểm tra domain qua các lớp chặn, bao gồm cả GCT dynamic safelist."""
+        # Bỏ qua truy vấn mạng nội bộ và reverse DNS (.local, .arpa)
+        if domain.endswith(".local") or domain.endswith(".arpa"):
+            return False, None
+
         # Lớp 1: Safelist tĩnh
         if domain in self.SAFELIST:
             return False, None
