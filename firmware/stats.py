@@ -22,6 +22,8 @@ CAT_RULES = (
      "tiktok", "snapchat", "pinterest"]),
 )
 
+FILE = "stats.json"
+
 
 def categorize(domain):
     """Phân loại domain vào nhóm: telemetry, tracking, malware, social, ads."""

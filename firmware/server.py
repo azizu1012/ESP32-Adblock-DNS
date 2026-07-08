@@ -263,33 +263,44 @@ function updateDashboard(data){
   if(data.cpu_temp&&data.cpu_temp<100){document.getElementById('tempValue').textContent=data.cpu_temp+'°C'}else{document.getElementById('tempValue').textContent='--'}
 
   // Donut chart
-  if(donutChart){donutChart.destroy()}
-  const ctx=document.getElementById('donutChart').getContext('2d')
-  donutChart=new Chart(ctx,{
-    type:'doughnut',
-    data:{
-      labels:['Blocked','Allowed'],
-      datasets:[{
-        data:[data.blocked,data.allowed],
-        backgroundColor:['rgba(239,68,68,0.8)','rgba(34,197,94,0.8)'],
-        borderColor:['#ef4444','#22c55e'],
-        borderWidth:2,
-        hoverOffset:8
-      }]
-    },
-    options:{
-      responsive:true,
-      maintainAspectRatio:false,
-      cutout:'70%',
-      plugins:{
-        legend:{
-          position:'bottom',
-          labels:{color:'#94a3b8',padding:12,usePointStyle:true,font:{size:12}}
-        }
+  const hasData = (data.blocked > 0 || data.allowed > 0);
+  const chartData = hasData ? [data.blocked, data.allowed] : [0, 1];
+  const chartColors = hasData ? ['rgba(239,68,68,0.8)','rgba(34,197,94,0.8)'] : ['rgba(239,68,68,0.1)','rgba(255,255,255,0.05)'];
+  const chartBorders = hasData ? ['#ef4444','#22c55e'] : ['rgba(259,68,68,0.1)','rgba(255,255,255,0.1)'];
+
+  if(!donutChart){
+    const ctx=document.getElementById('donutChart').getContext('2d')
+    donutChart=new Chart(ctx,{
+      type:'doughnut',
+      data:{
+        labels:['Blocked','Allowed'],
+        datasets:[{
+          data:chartData,
+          backgroundColor:chartColors,
+          borderColor:chartBorders,
+          borderWidth:2,
+          hoverOffset:8
+        }]
       },
-      animation:{animateRotate:true,duration:800}
-    }
-  })
+      options:{
+        responsive:true,
+        maintainAspectRatio:false,
+        cutout:'70%',
+        plugins:{
+          legend:{
+            position:'bottom',
+            labels:{color:'#94a3b8',padding:12,usePointStyle:true,font:{size:12}}
+          }
+        },
+        animation:{animateRotate:true,duration:800}
+      }
+    })
+  }else{
+    donutChart.data.datasets[0].data=chartData
+    donutChart.data.datasets[0].backgroundColor=chartColors
+    donutChart.data.datasets[0].borderColor=chartBorders
+    donutChart.update()
+  }
 
   // Top blocked
   const topEl=document.getElementById('topList')
