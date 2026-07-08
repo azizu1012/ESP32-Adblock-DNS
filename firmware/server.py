@@ -367,6 +367,11 @@ class WebServer:
                 machine.reset()
                 return
             self._send_json(conn, {"ok": False, "error": "ssid required"})
+        elif path == "/api/reboot":
+            self._send_json(conn, {"ok": True, "message": "Rebooting..."})
+            import machine
+            time.sleep(0.5)
+            machine.reset()
         elif path == "/api/config/reset":
             from config import ConfigManager
             ConfigManager.delete()

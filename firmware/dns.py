@@ -99,12 +99,14 @@ class DNSServer:
         for part in parts:
             if part in self.KEYWORDS:
                 return True
-        return self._hash_search(self._fnv1a(domain.encode("utf-8")))
+        return self._hash_search(self._fnv1a_64(domain.encode("utf-8")))
 
-    def _fnv1a(self, data):
-        h = 0x811C9DC5
+    @staticmethod
+    def _fnv1a_64(data):
+        h = 0xCBF29CE484222325
+        p = 0x100000001B3
         for b in data:
-            h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF
+            h = ((h ^ b) * p) & 0xFFFFFFFFFFFFFFFF
         return h
 
     def _hash_search(self, target):
@@ -112,12 +114,12 @@ class DNSServer:
             with open(self.BLOCKED_BIN, "rb") as f:
                 f.seek(0, 2)
                 size = f.tell()
-                count = size // 4
+                count = size // 8
                 lo, hi = 0, count - 1
                 while lo <= hi:
                     mid = (lo + hi) // 2
-                    f.seek(mid * 4)
-                    val = struct.unpack("<I", f.read(4))[0]
+                    f.seek(mid * 8)
+                    val = struct.unpack("<Q", f.read(8))[0]
                     if val == target:
                         return True
                     if val < target:

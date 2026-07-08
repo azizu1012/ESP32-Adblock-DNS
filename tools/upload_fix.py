@@ -1,78 +1,74 @@
-import serial, time, base64, os
+"""Upload firmware code + blocked.bin to ESP32 over serial.
 
-BASE = "D:\\AI_Projects\\ESP32-Side-PRJ\\firmware"
-ser = serial.Serial("COM3", 115200, timeout=5)
+Usage:
+  python upload_fix.py [COM_PORT] [FIRMWARE_DIR]
+
+Defaults: COM3, ../firmware (relative to this script)
+"""
+import serial, time, base64, os, sys
+
+COM_PORT = sys.argv[1] if len(sys.argv) > 1 else "COM3"
+FIRMWARE_DIR = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(__file__), "..", "firmware")
+
+ser = serial.Serial(COM_PORT, 115200, timeout=5)
+
+def repl_connect():
+    ser.write(b"\r\x01")
+    time.sleep(0.3)
+    ser.read_all()
+
+def repl_disconnect():
+    ser.write(b"\x02")
+    time.sleep(0.1)
+    ser.read_all()
+
+def repl_send(text):
+    ser.write(text.encode("utf-8"))
+    ser.write(b"\x04")
+    time.sleep(0.8)
+    res = ser.read_all().decode("utf-8", errors="ignore")
+    repl_disconnect()
+    return res
+
+def send_file(local_name, remote_name):
+    path = os.path.join(FIRMWARE_DIR, local_name)
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+    repl_connect()
+    code = f"with open('{remote_name}', 'w') as f: f.write({repr(content)})\n"
+    res = repl_send(code)
+    ok = "Traceback" not in res
+    print(f"  {remote_name}: {'OK' if ok else 'FAIL'}")
+    return ok
 
 print("Reset...")
 ser.setDTR(False); ser.setRTS(True); time.sleep(0.2)
 ser.setRTS(False); time.sleep(0.2)
-
 print("Interrupt...")
 for _ in range(25):
     ser.write(b"\x03"); time.sleep(0.08)
 time.sleep(0.5)
 ser.read_all()
 
-# First upload text files
-def send_file(local, remote):
-    with open(os.path.join(BASE, local), "r", encoding="utf-8") as f:
-        content = f.read()
-    ser.write(b"\r\x01")
-    time.sleep(0.3)
-    ser.read_all()
-    code = f"with open('{remote}', 'w') as f: f.write({repr(content)})\n"
-    ser.write(code.encode("utf-8"))
-    ser.write(b"\x04")
-    time.sleep(0.8)
-    res = ser.read_all().decode("utf-8", errors="ignore")
-    ser.write(b"\x02")
-    time.sleep(0.1)
-    ser.read_all()
-    ok = "Traceback" not in res
-    print(f"  {remote}: {'OK' if ok else 'FAIL'}")
-    return ok
+print("Uploading firmware...")
+for name in ["server.py", "stats.py", "dns.py", "boot.py"]:
+    send_file(name, name)
 
-print("Uploading code files...")
-send_file("server.py", "server.py")
-send_file("stats.py", "stats.py")
-send_file("dns.py", "dns.py")
-send_file("boot.py", "boot.py")
-
-# Upload blocked.bin via chunked base64
-bin_path = os.path.join(BASE, "blocked.bin")
+bin_path = os.path.join(FIRMWARE_DIR, "blocked.bin")
 if os.path.exists(bin_path):
     size_kb = os.path.getsize(bin_path) / 1024
     print(f"\nUploading blocked.bin ({size_kb:.0f} KB)...")
-    
+
     with open(bin_path, "rb") as f:
         raw = f.read()
     b64 = base64.b64encode(raw).decode()
-    
-    # Open file in raw REPL
-    CHUNK = 800  # base64 chars per chunk -> ~600 bytes binary
-    
-    # Use paste mode, but only send ~50KB at a time to fit in RAM
-    PASTE_LIMIT = 40000  # paste buffer limit
-    
-    total_chunks = (len(b64) // CHUNK) + 1
-    print(f"  Chunks: {total_chunks}, total b64: {len(b64)} chars")
-    
-    # We need to write in multiple paste sessions
-    # Each paste session: append chunks to the file
-    
-    # First, open file in raw REPL
-    ser.write(b"\r\x01")
-    time.sleep(0.3)
-    ser.read_all()
-    ser.write(b"f=open('blocked.bin','wb')\n")
-    ser.write(b"\x04")
-    time.sleep(0.5)
-    ser.read_all()
-    ser.write(b"\x02")
-    time.sleep(0.1)
-    ser.read_all()
-    
-    # Send chunks in groups
+    CHUNK = 800
+    PASTE_LIMIT = 40000
+    total_chunks = (len(b64) + CHUNK - 1) // CHUNK
+
+    repl_connect()
+    repl_send("f=open('blocked.bin','wb')\n")
+
     batch = []
     batch_size = 0
     n = 0
@@ -82,65 +78,37 @@ if os.path.exists(bin_path):
         batch.append(stmt.encode())
         batch_size += len(stmt)
         if batch_size >= PASTE_LIMIT:
-            ser.write(b"\r\x01")
-            time.sleep(0.3)
-            ser.read_all()
-            for s in batch:
-                ser.write(s)
-            ser.write(b"\x04")
-            time.sleep(0.3)
-            ser.read_all()
-            ser.write(b"\x02")
-            time.sleep(0.1)
-            ser.read_all()
+            repl_connect()
+            for s in batch: ser.write(s)
+            repl_disconnect()
             n += len(batch)
-            print(f"  Sent {n}/{total_chunks} chunks ({n*CHUNK}/{len(b64)} chars)", end="\r")
+            print(f"  {n}/{total_chunks} chunks", end="\r")
             batch = []
             batch_size = 0
             time.sleep(0.05)
-    
-    # Last batch
+
     if batch:
-        ser.write(b"\r\x01")
-        time.sleep(0.3)
-        ser.read_all()
-        for s in batch:
-            ser.write(s)
-        ser.write(b"\x04")
-        time.sleep(0.3)
-        ser.read_all()
-        ser.write(b"\x02")
-        time.sleep(0.1)
-        ser.read_all()
+        repl_connect()
+        for s in batch: ser.write(s)
+        repl_disconnect()
         n += len(batch)
-    
-    print(f"\n  Sent {n}/{total_chunks} chunks. Closing file...")
-    
-    # Close file (separate paste session)
+        print(f"  {n}/{total_chunks} chunks")
+
     for attempt in range(3):
-        ser.write(b"\r\x01")
-        time.sleep(0.3)
-        ser.read_all()
-        ser.write(b"f.close();print('OK')\n")
-        ser.write(b"\x04")
-        time.sleep(0.3)
-        res = ser.read_all().decode("utf-8", errors="ignore")
-        ser.write(b"\x02")
-        time.sleep(0.1)
-        ser.read_all()
+        repl_connect()
+        res = repl_send("f.close();print('OK')\n")
         if "OK" in res:
             print("  blocked.bin: OK")
             break
-        print(f"  close attempt {attempt+1} failed, retry...")
+        print(f"  close attempt {attempt+1} failed")
     else:
         print("  blocked.bin: FAIL")
-        print(res[:200])
 
 print("\nReboot...")
 ser.write(b"\x04")
 time.sleep(6)
 data = ser.read_all().decode("utf-8", errors="ignore")
 ser.close()
-for l in data.split("\n")[-25:]:
+for l in data.split("\n")[-15:]:
     l = l.strip()
     if l: print(l)
