@@ -65,6 +65,9 @@ def main():
         path = os.path.join(FIRMWARE, fname)
         with open(path, encoding="utf-8") as f:
             content = f.read()
+        # Strip UTF-8 BOM if PowerShell injected it
+        if content.startswith("\ufeff"):
+            content = content[1:]
         
         # Ghi file dùng repr()
         safe = repr(content)

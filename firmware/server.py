@@ -1,4 +1,4 @@
-﻿"""HTTP web server: dashboard, stats API, config, upload.
+"""HTTP web server: dashboard, stats API, config, upload.
 
 Routes:
   GET  /             -- Dashboard (streams web/index.html from flash)
