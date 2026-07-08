@@ -15,6 +15,7 @@ from wifi import WiFiManager
 from stats import Stats
 from dns import DNSServer
 from server import WebServer
+from ddns import DDNSUpdater
 
 led = Pin(2, Pin.OUT)
 boot_btn = Pin(0, Pin.IN, Pin.PULL_UP)
@@ -66,6 +67,7 @@ if cfg.get("ssid") and wifi.connect(cfg):
     dns.start()
     print("System ready!")
 
+    ddns = DDNSUpdater()
     last_hb = time.time()
     while True:
         handle_boot_button()
@@ -76,6 +78,7 @@ if cfg.get("ssid") and wifi.connect(cfg):
         if dns.poll():
             blink()
         stats.tick()
+        ddns.tick(cfg)
 else:
     led.value(1)
     ap_ip = wifi.start_ap()
