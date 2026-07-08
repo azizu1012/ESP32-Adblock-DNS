@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP32 Setup</title>
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:32px 16px}
+.gnav{width:100%;max-width:520px;display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;color:#f1f5f9}
+.dot{width:9px;height:9px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px rgba(34,197,94,.5);flex-shrink:0}
+.card{background:rgba(13,18,30,0.5);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.07);border-radius:20px;padding:32px;width:100%;max-width:520px}
+.card-hdr{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.card-title{font-size:20px;font-weight:700;color:#f1f5f9}
+.card-sub{font-size:13px;color:#64748b;margin-bottom:24px}
+.status{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;border:1px solid;font-size:13px;margin-bottom:24px;transition:all .3s}
+.sec-hdr{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.8px;margin-bottom:16px}
+.sec-hdr::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.06)}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:13px;color:#94a3b8;font-weight:500;margin-bottom:6px}
+.field input{width:100%;padding:11px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:10px;color:#e2e8f0;font-size:14px;outline:none;transition:border-color .2s,background .2s}
+.field input:focus{border-color:#6366f1;background:rgba(99,102,241,.06)}
+.field input::placeholder{color:#475569}
+.badge{font-size:10px;background:rgba(99,102,241,.15);color:#818cf8;padding:2px 7px;border-radius:4px;font-weight:500;letter-spacing:0;text-transform:none}
+.hint{font-size:12px;color:#475569;margin-bottom:14px;line-height:1.5}
+.btn{width:100%;padding:13px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;transition:all .2s;margin-top:8px;display:flex;align-items:center;justify-content:center;gap:8px}
+.btn:hover:not(:disabled){background:linear-gradient(135deg,#818cf8,#6366f1);transform:translateY(-1px);box-shadow:0 8px 24px rgba(99,102,241,.3)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+a.back{display:block;text-align:center;margin-top:20px;font-size:13px;color:#818cf8;text-decoration:none;opacity:.7}
+a.back:hover{opacity:1}
+</style>
+</head>
+<body>
+
+<div class="gnav">
+  <div class="logo"><span class="dot"></span>ESP32 AdBlocker</div>
+  <a href="/" style="font-size:13px;color:#64748b;text-decoration:none">&#8592; Dashboard</a>
+</div>
+
+<div class="card">
+  <div class="card-hdr">
+    <span data-lucide="settings" style="color:#818cf8;width:22px;height:22px"></span>
+    <div class="card-title">Device Setup</div>
+  </div>
+  <div class="card-sub">Configure Wi-Fi and Dynamic DNS for your ESP32 AdBlocker</div>
+
+  <!-- Status bar — populated by JS via /api/stats -->
+  <div class="status" id="statusBar" style="background:rgba(99,102,241,.08);border-color:rgba(99,102,241,.2);color:#818cf8">
+    <span data-lucide="loader" style="width:16px;height:16px;flex-shrink:0"></span>
+    <span id="statusText">Checking connection&#8230;</span>
+  </div>
+
+  <form id="setupForm">
+    <div class="sec-hdr">
+      <span data-lucide="wifi" style="width:13px;height:13px"></span>
+      Wi-Fi Network
+    </div>
+    <div class="field">
+      <label>Network Name (SSID)</label>
+      <input type="text" name="ssid" required placeholder="Enter your Wi-Fi name" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" name="password" placeholder="Leave blank for open networks" autocomplete="off">
+    </div>
+
+    <div class="sec-hdr" style="margin-top:24px">
+      <span data-lucide="globe" style="width:13px;height:13px"></span>
+      Dynamic DNS &mdash; No-IP
+      <span class="badge">Optional</span>
+    </div>
+    <div class="hint">Auto-updates your public IP when it changes. Skip if not needed.</div>
+    <div class="field">
+      <label>Username / Email</label>
+      <input type="text" name="noip_user" placeholder="your@email.com" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" name="noip_pass" placeholder="No-IP password" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Hostname</label>
+      <input type="text" name="noip_host" placeholder="yourhost.ddns.net" autocomplete="off">
+    </div>
+
+    <button type="submit" class="btn" id="saveBtn">
+      <span data-lucide="save" style="width:16px;height:16px"></span>
+      Save &amp; Reboot
+    </button>
+  </form>
+</div>
+
+<a href="/" class="back">&#8592; Back to Dashboard</a>
+
+<script>
+// Init icons
+try{lucide.createIcons()}catch(e){}
+
+// Fetch connection status from /api/stats
+fetch('/api/stats').then(function(r){return r.json()}).then(function(d){
+  var bar=document.getElementById('statusBar')
+  var txt=document.getElementById('statusText')
+  if(d.ip&&d.ip.length>0){
+    bar.style.background='rgba(34,197,94,.08)'
+    bar.style.borderColor='rgba(34,197,94,.25)'
+    bar.style.color='#22c55e'
+    bar.innerHTML='<span data-lucide="check-circle" style="width:16px;height:16px;flex-shrink:0"></span><span>Connected &mdash; '+d.ip+'</span>'
+  }else{
+    bar.style.background='rgba(245,158,11,.08)'
+    bar.style.borderColor='rgba(245,158,11,.25)'
+    bar.style.color='#fbbf24'
+    bar.innerHTML='<span data-lucide="alert-triangle" style="width:16px;height:16px;flex-shrink:0"></span><span>Not connected &mdash; enter Wi-Fi details below</span>'
+  }
+  try{lucide.createIcons()}catch(e){}
+}).catch(function(){
+  var bar=document.getElementById('statusBar')
+  bar.style.background='rgba(239,68,68,.08)'
+  bar.style.borderColor='rgba(239,68,68,.25)'
+  bar.style.color='#ef4444'
+  bar.innerHTML='<span data-lucide="wifi-off" style="width:16px;height:16px;flex-shrink:0"></span><span>Unable to reach device</span>'
+  try{lucide.createIcons()}catch(e){}
+})
+
+// Form submit
+document.getElementById('setupForm').addEventListener('submit',async function(e){
+  e.preventDefault()
+  var btn=document.getElementById('saveBtn')
+  btn.disabled=true
+  btn.innerHTML='<span data-lucide="loader" style="width:16px;height:16px"></span> Saving&#8230;'
+  try{lucide.createIcons()}catch(e){}
+  var data={}
+  new FormData(this).forEach(function(v,k){data[k]=v})
+  try{
+    var r=await fetch('/api/config/wifi',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
+    var j=await r.json()
+    if(j.ok){
+      btn.innerHTML='<span data-lucide="check-circle" style="width:16px;height:16px"></span> Rebooting&#8230;'
+      try{lucide.createIcons()}catch(e){}
+      setTimeout(function(){window.location.href='/'},2500)
+    }else{
+      alert('Error: '+(j.error||'unknown'))
+      btn.disabled=false
+      btn.innerHTML='<span data-lucide="save" style="width:16px;height:16px"></span> Save &amp; Reboot'
+      try{lucide.createIcons()}catch(e){}
+    }
+  }catch(err){
+    alert('Request failed: '+err.message)
+    btn.disabled=false
+    btn.innerHTML='<span data-lucide="save" style="width:16px;height:16px"></span> Save &amp; Reboot'
+    try{lucide.createIcons()}catch(e){}
+  }
+})
+</script>
+</body>
+</html>

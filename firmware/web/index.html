@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP32 AdBlocker</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;min-height:100vh}
+.gnav{background:rgba(8,12,24,.45);backdrop-filter:blur(20px);border-bottom:1px solid rgba(255,255,255,.05);position:sticky;top:0;z-index:50;padding:12px 24px;display:flex;align-items:center;justify-content:space-between}
+.gc{background:rgba(13,18,30,.4);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:20px;transition:all .3s}
+.gc:hover{transform:translateY(-2px);border-color:rgba(99,102,241,.3)}
+@keyframes fi{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pu{0%,100%{opacity:1}50%{opacity:.5}}
+.ai{animation:fi .5s ease forwards;opacity:0}
+.d1{animation-delay:.08s}.d2{animation-delay:.16s}.d3{animation-delay:.24s}.d4{animation-delay:.32s}.d5{animation-delay:.40s}.d6{animation-delay:.48s}
+.dot{width:10px;height:10px;border-radius:50%;background:#22c55e;display:inline-block;animation:pu 2s infinite;box-shadow:0 0 8px rgba(34,197,94,.5)}
+.kv{font-size:28px;font-weight:700;letter-spacing:-.5px}
+.kl{font-size:13px;color:#94a3b8;margin-top:2px}
+.ki{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:12px}
+.sb{background:rgba(255,255,255,.03);border-radius:10px;padding:10px}
+.sv{font-size:14px;font-weight:700;font-family:monospace}
+.ss{font-size:10px;color:#64748b;margin-top:1px}
+.pg{width:100%;height:4px;background:rgba(255,255,255,.06);border-radius:2px;margin-top:4px}
+.pf{height:100%;border-radius:2px;transition:width .5s}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(99,102,241,.3);border-radius:2px}
+</style>
+</head>
+<body>
+<nav class="gnav">
+  <div style="display:flex;align-items:center;gap:12px">
+    <span class="dot"></span>
+    <span style="font-weight:700;font-size:18px;color:#f1f5f9">ESP32 AdBlocker</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:16px">
+    <span style="font-size:11px;font-weight:600;color:#22c55e;letter-spacing:1px">LIVE</span>
+    <span id="upNav" style="font-size:13px;color:#64748b;font-family:monospace">--</span>
+    <a href="/setup" style="font-size:13px;color:#818cf8;text-decoration:none;font-weight:500">&#9881; Setup</a>
+  </div>
+</nav>
+<main style="max-width:1200px;margin:0 auto;padding:20px 16px">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:20px">
+    <div class="gc ai d1"><div class="ki" style="background:rgba(99,102,241,.15);color:#818cf8" data-lucide="activity"></div><div class="kv" id="kT">--</div><div class="kl">Total Queries</div></div>
+    <div class="gc ai d2"><div class="ki" style="background:rgba(239,68,68,.15);color:#ef4444" data-lucide="shield-off"></div><div class="kv" id="kB" style="color:#ef4444">--</div><div class="kl">Blocked</div></div>
+    <div class="gc ai d3"><div class="ki" style="background:rgba(34,197,94,.15);color:#22c55e" data-lucide="shield-check"></div><div class="kv" id="kA" style="color:#22c55e">--</div><div class="kl">Allowed</div></div>
+    <div class="gc ai d4"><div class="ki" style="background:rgba(245,158,11,.15);color:#f59e0b" data-lucide="pie-chart"></div><div class="kv" id="kR" style="color:#f59e0b">--%</div><div class="kl">Block Ratio</div></div>
+    <div class="gc ai d5"><div class="ki" style="background:rgba(99,102,241,.15);color:#818cf8" data-lucide="list"></div><div class="kv" id="kE" style="font-size:22px">--</div><div class="kl">Blocked Domains</div></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+    <div class="gc ai d6">
+      <h3 style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px">Block vs Allowed</h3>
+      <div style="position:relative;height:200px"><canvas id="donut"></canvas></div>
+    </div>
+    <div class="gc ai d6">
+      <h3 style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:16px;text-transform:uppercase;letter-spacing:.5px">System Info</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:8px">
+        <div class="sb"><div style="display:flex;align-items:center;gap:5px;margin-bottom:4px"><span data-lucide="memory-stick" style="width:12px;height:12px;color:#818cf8"></span><span style="font-size:11px;color:#94a3b8">RAM</span></div><div class="sv" id="sR">--</div><div class="ss"><span id="sRf">--</span> free (<span id="sRp">0</span>%)</div><div class="pg"><div class="pf" id="sRb" style="background:#818cf8;width:0%"></div></div></div>
+        <div class="sb"><div style="display:flex;align-items:center;gap:5px;margin-bottom:4px"><span data-lucide="hard-drive" style="width:12px;height:12px;color:#22c55e"></span><span style="font-size:11px;color:#94a3b8">Flash</span></div><div class="sv" id="sF">--</div><div class="ss"><span id="sFf">--</span> free (<span id="sFp">0</span>%)</div><div class="pg"><div class="pf" id="sFb" style="background:#22c55e;width:0%"></div></div></div>
+        <div class="sb"><div style="display:flex;align-items:center;gap:5px;margin-bottom:4px"><span data-lucide="cpu" style="width:12px;height:12px;color:#f59e0b"></span><span style="font-size:11px;color:#94a3b8">CPU</span></div><div class="sv" id="sC">-- MHz</div><div class="ss" id="sCo">-- cores</div></div>
+        <div class="sb"><div style="display:flex;align-items:center;gap:5px;margin-bottom:4px"><span data-lucide="thermometer" style="width:12px;height:12px;color:#f59e0b"></span><span style="font-size:11px;color:#94a3b8">Temp</span></div><div class="sv" id="sT">--</div></div>
+        <div class="sb"><div style="display:flex;align-items:center;gap:5px;margin-bottom:4px"><span data-lucide="clock" style="width:12px;height:12px;color:#22c55e"></span><span style="font-size:11px;color:#94a3b8">Uptime</span></div><div class="sv" id="sU">--</div></div>
+        <div class="sb"><div style="display:flex;align-items:center;gap:5px;margin-bottom:4px"><span data-lucide="wifi" style="width:12px;height:12px;color:#22c55e"></span><span style="font-size:11px;color:#94a3b8">IP</span></div><div class="sv" id="sI" style="word-break:break-all;font-size:13px">--</div></div>
+        <div class="sb"><div style="display:flex;align-items:center;gap:5px;margin-bottom:4px"><span data-lucide="server" style="width:12px;height:12px;color:#818cf8"></span><span style="font-size:11px;color:#94a3b8">DNS</span></div><div class="sv" id="sUp" style="font-size:13px">--</div></div>
+        <div class="sb"><div style="display:flex;align-items:center;gap:5px;margin-bottom:4px"><span data-lucide="zap" style="width:12px;height:12px;color:#f59e0b"></span><span style="font-size:11px;color:#94a3b8">Latency</span></div><div class="sv" id="sL">--</div></div>
+      </div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div class="gc ai d6">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <h3 style="font-size:14px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Recent Queries</h3>
+        <span id="lR" style="font-size:12px;color:#64748b">--</span>
+      </div>
+      <div id="listR" style="max-height:380px;overflow-y:auto;padding-right:4px"><div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">Loading&#8230;</div></div>
+    </div>
+    <div class="gc ai d6">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <h3 style="font-size:14px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Top Blocked</h3>
+        <span id="lT" style="font-size:12px;color:#64748b">0 blocked</span>
+      </div>
+      <div id="listT"><div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">Loading&#8230;</div></div>
+    </div>
+  </div>
+</main>
+<script>
+tailwind.config={theme:{extend:{colors:{accent:'#6366f1'}}}}
+var ch=null
+function fmt(n){return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+n}
+function render(d){
+  document.getElementById('kT').textContent=fmt(d.total)
+  document.getElementById('kB').textContent=fmt(d.blocked)
+  document.getElementById('kA').textContent=fmt(d.allowed)
+  document.getElementById('kR').textContent=d.ratio+'%'
+  document.getElementById('kE').textContent=fmt(d.blocklist_entries||0)
+  document.getElementById('lT').textContent=d.blocked+' blocked'
+  document.getElementById('lR').textContent=d.total+' queries'
+  var u=d.uptime,h=Math.floor(u/3600),m=Math.floor((u%3600)/60),s=u%60
+  document.getElementById('upNav').textContent=h+'h '+m+'m '+s+'s'
+  document.getElementById('sU').textContent=h+'h '+m+'m'
+  document.getElementById('sUp').textContent=d.upstream||'--'
+  document.getElementById('sL').textContent=(d.upstream_rtt!==undefined&&d.upstream_rtt<999999)?d.upstream_rtt+' ms':'--'
+  var tK=Math.round((d.total_ram||0)/1024),uK=Math.round((d.alloc_ram||0)/1024),fK=Math.round((d.free_ram||0)/1024),rp=tK?Math.round(uK/tK*100):0
+  document.getElementById('sR').textContent=uK+'KB/'+tK+'KB'
+  document.getElementById('sRf').textContent=fK+'KB'
+  document.getElementById('sRp').textContent=rp
+  document.getElementById('sRb').style.width=Math.min(rp,100)+'%'
+  var ft=Math.round((d.flash_total||0)/1024),ff=Math.round((d.flash_free||0)/1024),fp=ft?Math.round((ft-ff)/ft*100):0
+  document.getElementById('sF').textContent=(ft-ff)+'KB/'+ft+'KB'
+  document.getElementById('sFf').textContent=ff+'KB'
+  document.getElementById('sFp').textContent=fp
+  document.getElementById('sFb').style.width=Math.min(fp,100)+'%'
+  document.getElementById('sC').textContent=(d.cpu_freq||240)+' MHz'
+  document.getElementById('sCo').textContent=(d.core_count||2)+' cores'
+  document.getElementById('sI').textContent=d.ip||'--'
+  document.getElementById('sT').textContent=(d.cpu_temp&&d.cpu_temp<100)?d.cpu_temp+'\u00b0C':'--'
+  var hd=d.blocked>0||d.allowed>0
+  var cd=hd?[d.blocked,d.allowed]:[0,1]
+  var cc=hd?['rgba(239,68,68,.8)','rgba(34,197,94,.8)']:['rgba(239,68,68,.08)','rgba(255,255,255,.04)']
+  var cb=hd?['#ef4444','#22c55e']:['rgba(239,68,68,.1)','rgba(255,255,255,.08)']
+  if(typeof Chart!=='undefined'){
+    if(!ch){ch=new Chart(document.getElementById('donut').getContext('2d'),{type:'doughnut',data:{labels:['Blocked','Allowed'],datasets:[{data:cd,backgroundColor:cc,borderColor:cb,borderWidth:2,hoverOffset:8}]},options:{responsive:true,maintainAspectRatio:false,cutout:'70%',plugins:{legend:{position:'bottom',labels:{color:'#94a3b8',padding:12,usePointStyle:true,font:{size:12}}}},animation:{animateRotate:true,duration:800}}})}
+    else{ch.data.datasets[0].data=cd;ch.data.datasets[0].backgroundColor=cc;ch.data.datasets[0].borderColor=cb;ch.update()}
+  }
+  var rl=document.getElementById('listR')
+  if(!d.recent||!d.recent.length){rl.innerHTML='<div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">Waiting for queries&#8230;</div>'}
+  else{rl.innerHTML=d.recent.slice(-30).reverse().map(function(r){var t=r[3]<3?'now':r[3]<60?r[3]+'s':Math.floor(r[3]/60)+'m';return'<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px"><span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;'+(r[1]?'background:rgba(239,68,68,.15);color:#ef4444':'background:rgba(34,197,94,.15);color:#22c55e')+'">'+(r[1]?'BLK':'OK')+'</span>'+(r[5]?'<span style="color:#64748b;font-size:11px;font-family:monospace">['+r[5]+']</span>':'')+'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r[0]+'</span><span style="color:#64748b;font-size:11px">'+t+'</span></div>'}).join('')}
+  var tl=document.getElementById('listT')
+  if(!d.top||!d.top.length){tl.innerHTML='<div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">No blocks yet</div>'}
+  else{var mx=d.top[0].c;tl.innerHTML=d.top.map(function(x,i){return'<div style="display:flex;align-items:center;gap:8px;padding:6px 0"><span style="font-size:12px;color:#64748b;min-width:20px">'+(i+1)+'.</span><div style="flex:1;min-width:0"><div style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+x.d+'</div><div style="width:100%;height:3px;background:rgba(255,255,255,.06);border-radius:2px;margin-top:3px"><div style="height:100%;border-radius:2px;background:#ef4444;width:'+Math.round(x.c/mx*100)+'%"></div></div></div><span style="font-size:12px;color:#94a3b8;font-weight:600;min-width:32px;text-align:right">'+x.c+'</span></div>'}).join('')}
+}
+async function poll(){try{render(await(await fetch('/api/stats')).json())}catch(e){}}
+poll();setInterval(poll,3000);lucide.createIcons()
+</script>
+</body>
+</html>

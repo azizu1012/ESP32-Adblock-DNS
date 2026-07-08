@@ -4,6 +4,8 @@ import sys, os, time
 SYS_PATH = os.path.dirname(os.path.dirname(__file__))
 FIRMWARE = os.path.join(SYS_PATH, "firmware")
 FILES = ["boot.py", "config.py", "wifi.py", "stats.py", "dns.py", "ddns.py", "server.py"]
+WEB_DIR = os.path.join(FIRMWARE, "web")
+WEB_FILES = ["index.html", "setup.html"]
 
 try:
     import serial
@@ -83,6 +85,29 @@ def main():
         time.sleep(0.1)
         ser.reset_input_buffer()
 
+    # Create web/ directory on ESP32 if not exists
+    raw_cmd(ser, "import os\ntry:\n    os.mkdir('web')\nexcept:\n    pass")
+
+    # Upload web/index.html and web/setup.html as binary
+    for fname in WEB_FILES:
+        path = os.path.join(WEB_DIR, fname)
+        with open(path, "rb") as f:
+            content = f.read()
+        safe = repr(content)
+        cmd = f"open('web/{fname}','wb').write({safe})"
+        print(f"  web/{fname} ({len(content)} bytes)...", end="", flush=True)
+        t0 = time.time()
+        res = raw_cmd(ser, cmd, timeout=20)
+        dt = time.time() - t0
+        if b"OK" in res:
+            print(f" {dt:.1f}s")
+        else:
+            print(f" FAIL ({dt:.1f}s): {res.decode(errors='replace')[-100:]}")
+        ser.write(b"gc.collect()\r")
+        ser.write(b"\x04")
+        time.sleep(0.1)
+        ser.reset_input_buffer()
+
     print("\nResetting ESP32 (Ctrl+D)...")
     ser.write(b"\x04")
     time.sleep(0.5)
@@ -90,6 +115,7 @@ def main():
     ser.write(b"\x02")
     ser.close()
     print("Done!")
+
 
 
 if __name__ == "__main__":
