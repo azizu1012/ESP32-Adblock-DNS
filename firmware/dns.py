@@ -47,6 +47,10 @@ class DNSServer:
         self.upstream_ip = "1.1.1.1"
         self.upstream_rtt = 0
         self.last_opt_ticks = time.ticks_ms()
+        self.last_query_ticks = time.ticks_ms()
+        self.rtt_sum = 0
+        self.rtt_cnt = 0
+        self.wifi = None
         self.stats.upstream_ip = "1.1.1.1"
         self.stats.upstream_rtt = 0
         try:
@@ -73,6 +77,11 @@ class DNSServer:
 
     def optimize_upstream(self, wifi_manager=None):
         """Đo độ trễ tới nhiều DNS server và chọn upstream tối ưu nhất."""
+        if wifi_manager:
+            self.wifi = wifi_manager
+        else:
+            wifi_manager = self.wifi
+
         candidates = ["1.1.1.1", "8.8.8.8", "9.9.9.9", "1.0.0.1", "8.8.4.4"]
         if wifi_manager and wifi_manager.is_connected():
             try:
@@ -112,13 +121,34 @@ class DNSServer:
         gc.collect()
 
     def tick(self, wifi_manager=None):
-        """Định kỳ chạy tối ưu hóa upstream DNS (mỗi 6 giờ)."""
-        if time.ticks_diff(time.ticks_ms(), self.last_opt_ticks) > 21600000:
-            self.last_opt_ticks = time.ticks_ms()
+        """Định kỳ và tự động tối ưu hóa dựa trên tải và độ trễ."""
+        if wifi_manager:
+            self.wifi = wifi_manager
+        else:
+            wifi_manager = self.wifi
+
+        now = time.ticks_ms()
+        
+        # 1. Kiểm tra định kỳ (fallback 6 giờ)
+        if time.ticks_diff(now, self.last_opt_ticks) > 21600000:
+            self.last_opt_ticks = now
             try:
                 self.optimize_upstream(wifi_manager)
             except Exception as e:
                 print("Periodic optimize error:", e)
+            return
+
+        # 2. Phát hiện trạng thái rảnh (Idle): Không có truy vấn trong 15 phút
+        # và đã hơn 1 giờ chưa tối ưu hóa lại.
+        idle_time = time.ticks_diff(now, self.last_query_ticks)
+        time_since_opt = time.ticks_diff(now, self.last_opt_ticks)
+        if idle_time > 900000 and time_since_opt > 3600000:
+            self.last_opt_ticks = now
+            try:
+                print("[DNS] Idle detected, running silent optimize...")
+                self.optimize_upstream(wifi_manager)
+            except:
+                pass
 
     def start(self):
         """Mở socket DNS (UDP) và socket upstream."""
@@ -143,6 +173,7 @@ class DNSServer:
         request, addr = self.sock.recvfrom(512)
         if len(request) < 12:
             return False
+        self.last_query_ticks = time.ticks_ms()
         domain = self._parse_domain(request)
         blocked = False
         layer = None
@@ -265,10 +296,33 @@ class DNSServer:
 
     def _proxy(self, request, addr):
         """Chuyển tiếp DNS request lên upstream và gửi response về client."""
+        t0 = time.ticks_ms()
+        self.last_query_ticks = t0
         try:
             self.upstream.sendto(request, (self.upstream_ip, self.PORT))
             response, _ = self.upstream.recvfrom(1024)
             self.sock.sendto(response, addr)
+            
+            # Đo RTT truy vấn thực tế
+            rtt = time.ticks_diff(time.ticks_ms(), t0)
+            self.upstream_rtt = rtt
+            self.stats.upstream_rtt = rtt
+            
+            # Tính trung bình trượt RTT để phát hiện DNS bị chậm
+            if self.rtt_cnt < 5:
+                self.rtt_sum += rtt
+                self.rtt_cnt += 1
+            else:
+                self.rtt_sum = int(self.rtt_sum * 0.8 + rtt * 0.2)
+                # Nếu RTT trung bình cao (> 150ms) và chưa tối ưu hóa trong 5 phút
+                if self.rtt_sum > 150 and time.ticks_diff(time.ticks_ms(), self.last_opt_ticks) > 300000:
+                    print(f"[DNS] High latency detected ({self.rtt_sum} ms), re-optimizing...")
+                    self.rtt_cnt = 0
+                    self.rtt_sum = 0
+                    try:
+                        self.optimize_upstream()
+                    except:
+                        pass
         except Exception as e:
             print(f"[DNS] Upstream {self.upstream_ip} error: {e}")
             try:
@@ -277,7 +331,8 @@ class DNSServer:
                 pass
             self.upstream = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.upstream.settimeout(2.0)
-            try:
-                self.optimize_upstream()
-            except:
-                pass
+            if time.ticks_diff(time.ticks_ms(), self.last_opt_ticks) > 30000:
+                try:
+                    self.optimize_upstream()
+                except:
+                    pass
