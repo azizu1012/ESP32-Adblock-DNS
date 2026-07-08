@@ -1,10 +1,8 @@
 # API Reference
 
-The web server runs on port 80. All POST bodies are `application/x-www-form-urlencoded`
-or JSON (for `/api/config/wifi`). Responses are JSON.
+The web server runs on port 80. All POST bodies are `application/x-www-form-urlencoded` or JSON (for `/api/config/wifi`). Responses are JSON.
 
-Additional fields (not shown in example below) are added automatically — see the
-JSON response for the full set. The dashboard polls `/api/stats` every 3 seconds.
+The dashboard polls `/api/stats` every 3 seconds to fetch live metrics.
 
 ## `GET /` — Dashboard
 
@@ -25,14 +23,15 @@ Returns the dashboard HTML. Auto-refreshes every 3 seconds with `/api/stats`.
   "last_blocked": "doubleclick.net",
   "recent": [
     ["doubleclick.net", true, "tracking", 2, "hash"],
-    ["google.com", false, "", 5, ""]
+    ["google.com", false, "", 5, ""],
+    ["legit-site.com", false, "", 1, "safelist"]
   ],
   "top": [
     {"d": "doubleclick.net", "c": 47, "g": "tracking"},
     {"d": "scorecardresearch.com", "c": 23, "g": "tracking"}
   ],
-  "flash_free": 102400,
-  "flash_total": 1048576,
+  "flash_free": 640000,
+  "flash_total": 2097152,
   "flash_chip": 4194304,
   "blocklist_entries": 230003,
   "cpu_freq": 240,
@@ -40,16 +39,16 @@ Returns the dashboard HTML. Auto-refreshes every 3 seconds with `/api/stats`.
 }
 ```
 
-Fields:
-- `recent[][2]` — category string (empty if passed)
-- `recent[][3]` — age in seconds since query
-- `recent[][4]` — blocking layer name (`"heuristic"`, `"keyword"`, `"hash"`, or `""`)
-- `flash_free` — free filesystem bytes
-- `flash_total` — total filesystem bytes
-- `flash_chip` — raw chip flash size (typically 4,194,304)
-- `blocklist_entries` — number of entries in blocked.bin
-- `cpu_freq` — CPU frequency in MHz
-- `core_count` — number of CPU cores (2 for ESP32)
+### Fields:
+- `recent[][2]` — Category string (empty if passed).
+- `recent[][3]` — Age in seconds since the query occurred.
+- `recent[][4]` — Blocking layer name (`"safelist"`, `"heuristic"`, `"keyword"`, `"hash"`, or `""`).
+- `flash_free` — Free filesystem bytes (increased by 640KB due to Blocked Bloom Filter savings).
+- `flash_total` — Total filesystem bytes.
+- `flash_chip` — Raw chip flash size.
+- `blocklist_entries` — Number of entries mapped inside the Bloom Filter (read from the footer).
+- `cpu_freq` — CPU frequency in MHz.
+- `core_count` — Number of CPU cores.
 
 ## `GET /setup` — Setup page
 
@@ -57,16 +56,14 @@ WiFi + No-IP DDNS configuration form.
 
 ## `POST /api/upload` — Upload blocked.bin
 
-```
+```text
 Content-Type: application/octet-stream
 Body: binary file data (raw)
 
-Response: {"ok": true, "message": "Upload OK (1840024 bytes)"}
+Response: {"ok": true, "message": "Upload OK (1200004 bytes)"}
 ```
 
-Streaming write to flash; no RAM accumulation. File is written
-atomically via `open("blocked.bin", "wb")`. After upload, reboot
-for the DNS server to pick up the new blocklist.
+Streams the binary file directly to LittleFS and triggers garbage collection (`gc.collect()`) every 8KB to avoid MemoryError crashes on the ESP32's limited heap. After upload, reboot the device to reload the Bloom Filter.
 
 ## `POST /api/reboot` — Soft reboot
 
@@ -74,7 +71,7 @@ for the DNS server to pick up the new blocklist.
 {"ok": true, "message": "Rebooting..."}
 ```
 
-Triggers `machine.reset()` with 500ms delay.
+Triggers `machine.reset()` with a 500ms delay.
 
 ## `POST /api/config/wifi` — Save config
 
@@ -88,12 +85,12 @@ Triggers `machine.reset()` with 500ms delay.
 }
 ```
 
-All No-IP fields are optional. On success, saves and reboots.
+Saves configuration details and triggers a reboot.
 
 ## `POST /api/config/reset` — Factory reset
 
-Deletes `wifi_config.json`, reboots into AP mode.
+Deletes `wifi_config.json` and reboots into Access Point (AP) setup mode.
 
 ## `POST /api/config/dhcp` — Switch to DHCP
 
-Clears static IP config, reboots to obtain DHCP lease.
+Clears static IP configurations and reboots to request a DHCP lease.
