@@ -493,7 +493,7 @@ class WebServer:
             body_start = header_end + 4
             written = len(data) - body_start
 
-            import machine
+            import machine, gc
             with open("blocked.bin", "wb") as f:
                 f.write(data[body_start:])
                 while written < cl:
@@ -503,8 +503,9 @@ class WebServer:
                         break
                     f.write(chunk)
                     written += len(chunk)
-                    if written % 16384 == 0:
+                    if written % 8192 == 0:
                         f.flush()
+                        gc.collect()
                         machine.idle()
 
             self._send_json(conn, {"ok": True, "message": "Upload OK (%d bytes)" % cl})
