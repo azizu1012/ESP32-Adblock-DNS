@@ -282,7 +282,7 @@ class DNSServer:
             
             with open(self.BLOCKED_BIN, "rb") as f:
                 f.seek(block_idx * 64)
-                f.readinto(self._bloom_buf, 64)
+                f.readinto(self._bloom_buf)
                 
             for i in range(8):
                 bit_pos = (h_low ^ (i * 0x5bd1e995)) % 512
