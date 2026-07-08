@@ -1,3 +1,8 @@
+"""WiFi connection manager.
+
+Supports static IP, DHCP with auto-assign, and AP setup mode.
+Auto-assign saves the DHCP-obtained IP as static on first connect.
+"""
 import network
 import time
 import machine

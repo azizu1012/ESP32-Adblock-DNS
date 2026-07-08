@@ -1,3 +1,14 @@
+"""HTTP web server: dashboard, stats API, config, upload.
+
+Routes:
+  GET  /             — Dashboard (dark theme, live stats)
+  GET  /api/stats    — JSON stats endpoint
+  POST /api/upload   — Upload new blocked.bin (streamed)
+  POST /api/config/wifi — Save WiFi config & reboot
+  POST /api/config/reset — Reset config & reboot
+  POST /api/config/dhcp   — Switch to DHCP & reboot
+  GET  /setup        — WiFi setup page
+"""
 import socket
 import json
 import time
@@ -413,17 +424,6 @@ class WebServer:
             self._send_json(conn, {"ok": True, "message": "Upload OK (%d bytes)" % cl})
         except Exception as e:
             self._send_json(conn, {"ok": False, "error": str(e)})
-            from config import ConfigManager
-            cfg = ConfigManager.load()
-            cfg["ip"] = ""
-            cfg["gateway"] = ""
-            ConfigManager.save(cfg)
-            self._send_json(conn, {"ok": True, "message": "DHCP mode. Rebooting..."})
-            import machine
-            time.sleep(1)
-            machine.reset()
-        else:
-            self._send_json(conn, {"ok": False, "error": "unknown endpoint"})
 
     @staticmethod
     def _parse_body(request):

@@ -1,3 +1,8 @@
+"""Read/write WiFi config JSON file.
+
+File: wifi_config.json
+Keys: ssid, password, ip, gateway, subnet, noip_user|pass|host
+"""
 import json
 import os
 

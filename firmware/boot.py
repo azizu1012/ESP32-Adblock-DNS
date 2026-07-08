@@ -1,3 +1,11 @@
+"""Entry point: WiFi connect, DNS + Web threads, LED heartbeat.
+
+Boot sequence:
+1. Check BOOT button hold (3s) → factory reset
+2. Load wifi_config.json → connect to WiFi
+3. On success: start DNS proxy + web server in threads
+4. On failure: start AP mode for setup
+"""
 import time
 import machine
 from machine import Pin, Timer

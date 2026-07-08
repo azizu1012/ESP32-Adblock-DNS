@@ -1,3 +1,13 @@
+"""DNS proxy with adblock filtering.
+
+Blocking layers (in order):
+1. SAFELIST — skip domains in whitelist
+2. Heuristic — "ad.*" pattern matching
+3. Keyword — telemetry/analytics/doubleclick...
+4. Binary search — FNV-1a 32-bit hash against blocked.bin
+
+Unblocked queries are proxied upstream to 1.1.1.1.
+"""
 import socket
 import struct
 import select

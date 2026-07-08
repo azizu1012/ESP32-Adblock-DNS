@@ -1,3 +1,9 @@
+"""Persistent query statistics with 7-day rolling window.
+
+Tracks total/blocked queries, recent activity, and top blocked domains.
+Data is persisted to stats.json every 30s. Old entries (day < today-7)
+are pruned automatically on load and save.
+"""
 import gc, json, os
 from time import time
 
