@@ -54,7 +54,7 @@ class Stats:
     def _today(self):
         return int(time() // 86400)
 
-    def add(self, domain, is_blocked, layer=None):
+    def add(self, domain, is_blocked, layer=None, client_ip=""):
         """Ghi nhận một truy vấn: tăng bộ đếm, cập nhật top và recent."""
         self.lock.acquire()
         try:
@@ -68,9 +68,9 @@ class Stats:
                 else:
                     self.top[domain] = {"c": 1, "d": today}
                 self.dirty = True
-            self.recent.append((domain, is_blocked, layer, time()))
-            if len(self.recent) > 100:
-                self.recent = self.recent[-50:]
+            self.recent.append((domain, is_blocked, layer, time(), client_ip))
+            if len(self.recent) > 200:
+                self.recent = self.recent[-100:]
         finally:
             self.lock.release()
 
@@ -226,7 +226,7 @@ class Stats:
                 "alloc_ram": self.alloc_ram(),
                 "total_ram": self.total_ram(),
                 "last_blocked": self.last_blocked,
-                "recent": [(d, b, categorize(d) if b else "", int(now - t), layer) for d, b, layer, t in self.recent[-20:]],
+                "recent": [(d, b, categorize(d) if b else "", int(now - t), layer, ip) for d, b, layer, t, ip in self.recent[-50:]],
                 "top": [{"d": d, "c": v["c"], "g": categorize(d)} for d, v in self.top_blocked(10)],
                 "flash_free": self.flash_free(),
                 "flash_total": self.flash_total(),

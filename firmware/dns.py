@@ -62,13 +62,15 @@ class DNSServer:
         if domain:
             is_blocked, layer = self._check(domain)
             if is_blocked:
-                self.stats.add(domain, True, layer)
+                self.stats.add(domain, True, layer, client_ip=addr[0])
+                print(f"[DNS] {addr[0]} -> {domain} (BLOCK: {layer})")
                 resp = self._block_response(request)
                 if resp:
                     self.sock.sendto(resp, addr)
                 blocked = True
             else:
-                self.stats.add(domain, False)
+                self.stats.add(domain, False, client_ip=addr[0])
+                print(f"[DNS] {addr[0]} -> {domain} (PASS)")
                 self._proxy(request, addr)
         else:
             self._proxy(request, addr)

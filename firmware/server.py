@@ -176,7 +176,7 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
 <h3 style="font-size:14px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px">Recent Queries</h3>
 <span style="font-size:12px;color:#64748b" id="liveLabel">--</span>
 </div>
-<div id="recentList">
+<div id="recentList" style="max-height:380px;overflow-y:auto;padding-right:4px">
 <div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">Waiting for queries...</div>
 </div>
 </div>
@@ -219,12 +219,13 @@ function updateDashboard(data){
   if(!data.recent||data.recent.length===0){
     recentEl.innerHTML='<div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">Waiting for queries...</div>'
   }else{
-    recentEl.innerHTML=data.recent.slice(-10).reverse().map(function(r){
-      const domain=r[0],blocked=r[1],cat=r[2],age=r[3],layer=r[4]
+    recentEl.innerHTML=data.recent.slice(-30).reverse().map(function(r){
+      const domain=r[0],blocked=r[1],cat=r[2],age=r[3],layer=r[4],ip=r[5]
       const timeStr=age<3?'now':age<60?age+'s':Math.floor(age/60)+'m'
       const catBadge=blocked&&cat?' <span style="font-size:9px;padding:1px 4px;border-radius:3px;background:rgba(99,102,241,0.15);color:#818cf8;margin-left:2px">'+cat+'</span>':''
       const layerBadge=blocked&&layer?' <span style="font-size:9px;padding:1px 4px;border-radius:3px;background:rgba(245,158,11,0.15);color:#f59e0b;margin-left:2px">'+layer+'</span>':''
-      return '<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:13px"><span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;'+(blocked?'background:rgba(239,68,68,0.15);color:#ef4444':'background:rgba(34,197,94,0.15);color:#22c55e')+'">'+(blocked?'BLOCK':'PASS')+'</span>'+catBadge+layerBadge+'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+domain+'</span><span style="color:#64748b;font-size:11px">'+timeStr+'</span></div>'
+      const ipStr=ip?'<span style="color:#64748b;font-size:11px;font-family:monospace;margin-right:4px">['+ip+']</span>':''
+      return '<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:13px"><span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;'+(blocked?'background:rgba(239,68,68,0.15);color:#ef4444':'background:rgba(34,197,94,0.15);color:#22c55e')+'">'+(blocked?'BLOCK':'PASS')+'</span>'+catBadge+layerBadge+'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+ipStr+domain+'</span><span style="color:#64748b;font-size:11px">'+timeStr+'</span></div>'
     }).join('')
   }
 
