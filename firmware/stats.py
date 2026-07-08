@@ -6,6 +6,14 @@ bị xoá tự động khi load/save.
 """
 import gc, json, os, _thread
 from time import time
+try:
+    from time import ticks_ms, ticks_diff
+except ImportError:
+    def ticks_ms():
+        import time
+        return int(time.time() * 1000)
+    def ticks_diff(t1, t2):
+        return t1 - t2
 
 
 CAT_RULES = (
@@ -47,10 +55,12 @@ class Stats:
         """Đặt lại tất cả bộ đếm về 0."""
         self.total = 0
         self.blocked = 0
-        self.start_time = time()
+        self.start_ticks = ticks_ms()
         self.last_blocked = ""
         self.recent = []
         self.top = {}
+        self.upstream_ip = "1.1.1.1"
+        self.upstream_rtt = 0
 
     @property
     def _today(self):
@@ -88,7 +98,10 @@ class Stats:
 
     @property
     def uptime(self):
-        return max(0, int(time() - self.start_time))
+        try:
+            return max(0, int(ticks_diff(ticks_ms(), self.start_ticks) // 1000))
+        except:
+            return 0
 
     @staticmethod
     def free_ram():
@@ -236,6 +249,8 @@ class Stats:
                 "blocklist_entries": self.blocked_count(),
                 "cpu_freq": self.cpu_freq(),
                 "core_count": self.core_count(),
+                "upstream": getattr(self, "upstream_ip", "1.1.1.1"),
+                "upstream_rtt": getattr(self, "upstream_rtt", 0),
             }
         finally:
             self.lock.release()

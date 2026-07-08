@@ -13,6 +13,16 @@ import socket
 import struct
 import select
 import gc
+import time
+
+# Fallback for standard Python desktop testing
+if not hasattr(time, "ticks_ms"):
+    def ticks_ms():
+        return int(time.time() * 1000)
+    def ticks_diff(t1, t2):
+        return t1 - t2
+    time.ticks_ms = ticks_ms
+    time.ticks_diff = ticks_diff
 
 
 class DNSServer:
@@ -34,7 +44,81 @@ class DNSServer:
         self.sock = None
         self.upstream = None
         self._gc_cnt = 0
-        gc.threshold(gc.mem_free() // 4 + gc.mem_alloc())
+        self.upstream_ip = "1.1.1.1"
+        self.upstream_rtt = 0
+        self.last_opt_ticks = time.ticks_ms()
+        self.stats.upstream_ip = "1.1.1.1"
+        self.stats.upstream_rtt = 0
+        try:
+            gc.threshold(gc.mem_free() // 4 + gc.mem_alloc())
+        except:
+            pass
+
+    def _measure_rtt(self, ip, timeout_ms=300):
+        """Đo độ trễ RTT tới một IP bằng cách gửi DNS query cho google.com."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(timeout_ms / 1000.0)
+        try:
+            t0 = time.ticks_ms()
+            q = b'\xaa\xbb\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x06google\x03com\x00\x00\x01\x00\x01'
+            sock.sendto(q, (ip, 53))
+            resp, _ = sock.recvfrom(512)
+            if resp and resp[:2] == b'\xaa\xbb':
+                return time.ticks_diff(time.ticks_ms(), t0)
+        except:
+            pass
+        finally:
+            sock.close()
+        return 999999
+
+    def optimize_upstream(self, wifi_manager=None):
+        """Đo độ trễ tới nhiều DNS server và chọn upstream tối ưu nhất."""
+        candidates = ["1.1.1.1", "8.8.8.8", "9.9.9.9", "1.0.0.1", "8.8.4.4"]
+        if wifi_manager and wifi_manager.is_connected():
+            try:
+                dhcp_dns = wifi_manager.ifconfig()[3]
+                if dhcp_dns and dhcp_dns != "0.0.0.0" and dhcp_dns not in candidates:
+                    candidates.insert(0, dhcp_dns)
+            except:
+                pass
+
+        best_ip = self.upstream_ip
+        best_rtt = 999999
+        print(f"[DNS] Optimizing upstream among {candidates}...")
+        for ip in candidates:
+            r1 = self._measure_rtt(ip, 300)
+            if r1 < 999999:
+                r2 = self._measure_rtt(ip, 300)
+                rtt = (r1 + r2) // 2
+            else:
+                rtt = 999999
+            print(f"  - DNS {ip}: {rtt if rtt < 999999 else 'timeout'} ms")
+            if rtt < best_rtt:
+                best_rtt = rtt
+                best_ip = ip
+
+        if best_rtt < 999999:
+            self.upstream_ip = best_ip
+            self.upstream_rtt = best_rtt
+            self.stats.upstream_ip = best_ip
+            self.stats.upstream_rtt = best_rtt
+            print(f"[DNS] Best upstream selected: {best_ip} ({best_rtt} ms)")
+        else:
+            self.upstream_ip = "1.1.1.1"
+            self.upstream_rtt = 0
+            self.stats.upstream_ip = "1.1.1.1"
+            self.stats.upstream_rtt = 0
+            print("[DNS] No responsive upstream, fallback to 1.1.1.1")
+        gc.collect()
+
+    def tick(self, wifi_manager=None):
+        """Định kỳ chạy tối ưu hóa upstream DNS (mỗi 6 giờ)."""
+        if time.ticks_diff(time.ticks_ms(), self.last_opt_ticks) > 21600000:
+            self.last_opt_ticks = time.ticks_ms()
+            try:
+                self.optimize_upstream(wifi_manager)
+            except Exception as e:
+                print("Periodic optimize error:", e)
 
     def start(self):
         """Mở socket DNS (UDP) và socket upstream."""
@@ -180,15 +264,20 @@ class DNSServer:
             return b""
 
     def _proxy(self, request, addr):
-        """Chuyển tiếp DNS request lên upstream (1.1.1.1) và gửi response về client."""
+        """Chuyển tiếp DNS request lên upstream và gửi response về client."""
         try:
-            self.upstream.sendto(request, (self.UPSTREAM, self.PORT))
+            self.upstream.sendto(request, (self.upstream_ip, self.PORT))
             response, _ = self.upstream.recvfrom(1024)
             self.sock.sendto(response, addr)
-        except:
+        except Exception as e:
+            print(f"[DNS] Upstream {self.upstream_ip} error: {e}")
             try:
                 self.upstream.close()
             except:
                 pass
             self.upstream = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.upstream.settimeout(2.0)
+            try:
+                self.optimize_upstream()
+            except:
+                pass

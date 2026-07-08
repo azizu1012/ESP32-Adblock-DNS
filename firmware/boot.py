@@ -68,6 +68,10 @@ if cfg.get("ssid") and wifi.connect(cfg):
     _thread.start_new_thread(web.serve, (wifi,))
 
     dns = DNSServer(stats)
+    try:
+        dns.optimize_upstream(wifi)
+    except Exception as e:
+        print("Initial optimize error:", e)
     dns.start()
     print("System ready!")
 
@@ -88,7 +92,12 @@ if cfg.get("ssid") and wifi.connect(cfg):
                 print("DNS poll error:", inner)
             if not wifi.is_connected():
                 print("WiFi lost, reconnecting...")
-                wifi.connect(cfg)
+                if wifi.connect(cfg):
+                    try:
+                        dns.optimize_upstream(wifi)
+                    except:
+                        pass
+            dns.tick(wifi)
             stats.tick()
             ddns.tick(cfg)
             wdt.feed()
@@ -102,5 +111,5 @@ if cfg.get("ssid") and wifi.connect(cfg):
 else:
     led.value(1)
     ap_ip = wifi.start_ap()
-    web = WebServer(None, ip=ap_ip)
+    web = WebServer(stats, ip=ap_ip)
     web.serve(wifi)

@@ -115,9 +115,8 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
 </div>
 </div>
 
- <div class="glass-card animate-in cascade-6">
- <h3 style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:16px;text-transform:uppercase;letter-spacing:0.5px">System Info</h3>
- <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+ <div class="glass-card"> <h3 style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:16px;text-transform:uppercase;letter-spacing:0.5px">System Info</h3>
+ <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px">
  <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px">
  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
  <span data-lucide="memory-stick" style="width:13px;height:13px;color:#818cf8"></span>
@@ -165,6 +164,21 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
  </div>
  <div style="font-size:14px;font-weight:700;font-family:monospace;word-break:break-all" id="ipValue">--</div>
  </div>
+  <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px">
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+  <span data-lucide="server" style="width:13px;height:13px;color:#818cf8"></span>
+  <span style="font-size:11px;color:#94a3b8">DNS Upstream</span>
+  </div>
+  <div style="font-size:13px;font-weight:700;font-family:monospace;word-break:break-all" id="upstreamValue">--</div>
+  </div>
+  <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:10px">
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+  <span data-lucide="zap" style="width:13px;height:13px;color:#f59e0b"></span>
+  <span style="font-size:11px;color:#94a3b8">DNS Latency</span>
+  </div>
+  <div style="font-size:16px;font-weight:700;font-family:monospace" id="latencyValue">--</div>
+  </div>
+  </div> </div>
  </div>
  </div>
 </div>
@@ -236,6 +250,8 @@ function updateDashboard(data){
   const uptimeStr=h+'h '+m+'m '+s+'s'
   document.getElementById('uptimeDisplay').textContent=uptimeStr
   document.getElementById('uptimeValue').textContent=h+'h '+m+'m'
+  document.getElementById('upstreamValue').textContent=data.upstream||'--'
+  document.getElementById('latencyValue').textContent=(data.upstream_rtt!==undefined&&data.upstream_rtt<999999)?data.upstream_rtt+' ms':'--'
 
   const totalKB=Math.round((data.total_ram||0)/1024)
   const usedKB=Math.round((data.alloc_ram||0)/1024)
@@ -513,7 +529,8 @@ class WebServer:
                  "uptime": 0, "free_ram": 0, "alloc_ram": 0, "total_ram": 0,
                  "last_blocked": "", "recent": [], "cpu_temp": None, "ip": "",
                  "top": [], "flash_free": 0, "flash_total": 0, "flash_chip": 0,
-                 "blocklist_entries": 0, "cpu_freq": 0, "core_count": 0}
+                 "blocklist_entries": 0, "cpu_freq": 0, "core_count": 0,
+                 "upstream": "1.1.1.1", "upstream_rtt": 0}
             if wifi_manager and wifi_manager.is_connected():
                 try:
                     d["ip"] = wifi_manager.ifconfig()[0]
