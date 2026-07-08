@@ -1,0 +1,19 @@
+DUCKDNS - Dynamic DNS cho ESP32 AdBlocker
+===========================================
+
+1. Vào https://www.duckdns.org
+2. Đăng nhập bằng tài khoản Google / GitHub / Twitter
+3. Tạo domain: gõ "esp32adblocker" => Create
+4. Copy token hiện ra (token hiện tại: af25ae49-bce2-4ca5-b417-8600c2650669)
+5. Domain của bạn: esp32adblocker.duckdns.org
+
+--- Công dụng ---
+
+- Khi ở ngoài nhà (dùng 4G / mạng khác), mở http://esp32adblocker.duckdns.org:8080/
+  để truy cập dashboard ESP32.
+- Yêu cầu: mở port 80 trên router (port forwarding: WAN 80 -> 192.168.1.234:80)
+- ESP32 tự động cập nhật IP mỗi 12 giờ, không cần claim gì hết.
+
+===========================================
+Note :
+web local host: http://http://192.168.1.234/
