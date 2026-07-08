@@ -142,8 +142,6 @@ class Stats:
                     elif isinstance(val, int):
                         self.top[domain] = {"c": val, "d": 0}
                 self._cleanup()
-            self.blocked = sum(v["c"] for v in self.top.values())
-            self.total = self.blocked
         except:
             pass
 
