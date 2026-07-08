@@ -18,17 +18,30 @@ BAUD = 115200
 
 
 def raw_cmd(ser, cmd, timeout=15):
-    """Gửi code qua raw REPL, đợi kết quả."""
+    """Gửi code qua raw REPL, đợi kết quả.
+
+    MicroPython raw REPL protocol:
+      → command + \\x04
+      ← OK                (command accepted, starting execution)
+      ← [stdout output]
+      ← \\x04             (end of stdout)
+      ← [stderr/traceback]
+      ← \\x04             (end of stderr = execution fully complete)
+    We must wait for the second \\x04 to ensure the command finished.
+    """
     ser.write(cmd.encode())
     ser.write(b"\x04")  # Ctrl+D execute
     ser.flush()
     out = b""
     t0 = time.time()
+    eot_count = 0
     while time.time() - t0 < timeout:
         b = ser.read(128)
         if b:
             out += b
-            if b"OK" in out:
+            eot_count += out.count(b"\x04")
+            # Two \x04 = end of stdout + end of stderr → fully done
+            if eot_count >= 2:
                 break
         else:
             time.sleep(0.01)
