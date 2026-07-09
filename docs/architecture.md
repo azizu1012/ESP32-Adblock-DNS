@@ -8,23 +8,41 @@ This document details the internal architecture, memory management, and optimiza
 
 Each DNS query passes through five specialized layers. The first match wins, and the query is resolved or blocked immediately.
 
-```mermaid
-flowchart TD
-    Q([Incoming DNS Query]) --> L1{1. Local Bypass}
-    L1 -- ".local / .arpa" --> Allow([Allow - Zero Latency])
-    L1 -- "Other" --> L2{2. Static Safelist}
-    L2 -- "Match" --> Allow
-    L2 -- "No Match" --> L3{3. Dynamic Safelist\n(GCT)}
-    L3 -- "Match & < 30 req/min" --> Allow
-    L3 -- "Abuse > 30 req/min" --> Demote[Demote from Safelist]
-    L3 -- "No Match" --> L4{4. Heuristics}
-    Demote --> L4
-    L4 -- "ad12.example.com" --> Block([Block - Heuristic])
-    L4 -- "No Match" --> L5{5. Keywords}
-    L5 -- "'telemetry', 'analytics'" --> Block([Block - Keyword])
-    L5 -- "No Match" --> L6{6. Blocked Bloom Filter}
-    L6 -- "Match" --> Block([Block - Hash])
-    L6 -- "No Match" --> Resolve([Resolve Upstream])
+```text
+[Incoming DNS Query]
+       │
+       ▼
+ 1. Local Bypass (.local, .arpa) ──(Match)──▶ [ALLOW: Zero Latency]
+       │
+    (No Match)
+       │
+       ▼
+ 2. Static Safelist ───────────────(Match)──▶ [ALLOW: Essential Domain]
+       │
+    (No Match)
+       │
+       ▼
+ 3. Dynamic Safelist (GCT) ────────(Match)──▶ [ALLOW: If < 30 req/min]
+       │                                     (Abuse > 30) ──▶ [Demote from Safelist]
+    (No Match)
+       │
+       ▼
+ 4. Heuristics (ad12.*, ads.*) ────(Match)──▶ [BLOCK: Heuristic]
+       │
+    (No Match)
+       │
+       ▼
+ 5. Keywords (telemetry, etc.) ────(Match)──▶ [BLOCK: Keyword]
+       │
+    (No Match)
+       │
+       ▼
+ 6. Blocked Bloom Filter ──────────(Match)──▶ [BLOCK: Hash Match]
+       │
+    (No Match)
+       │
+       ▼
+[Resolve Upstream DNS]
 ```
 
 ### Layer Details
@@ -41,20 +59,19 @@ flowchart TD
 
 To fit 230K+ domains into the ESP32's tiny 2MB filesystem with **zero RAM overhead**, the system uses a blocked Bloom Filter architecture.
 
-```mermaid
-sequenceDiagram
-    participant C as DNS Client
-    participant E as ESP32 (dns.py)
-    participant F as Flash (blocked.bin)
-
-    C->>E: Query "doubleclick.net"
-    E->>E: FNV-1a 64-bit Hash
-    E->>E: Calculate block_idx & bit_pos
-    E->>F: f.seek(block_idx * 64)
-    E->>F: f.readinto(buffer, 64)
-    F-->>E: 64 bytes (512 bits)
-    E->>E: Check 8 bit positions
-    E-->>C: Blocked (0.0.0.0)
+```text
+CLIENT               ESP32 (dns.py)                    FLASH (blocked.bin)
+  │                        │                                   │
+  ├── Query "ad.com" ─────▶│                                   │
+  │                        ├── 1. FNV-1a Hash (64-bit)         │
+  │                        ├── 2. Calc block_idx & bit_pos     │
+  │                        │                                   │
+  │                        ├── 3. f.seek(block_idx * 64) ─────▶│
+  │                        ├── 4. f.readinto(buffer, 64) ─────▶│
+  │                        │◀── 5. Returns 64 Bytes (512 bits)─┤
+  │                        │                                   │
+  │                        ├── 6. Check 8 bit positions        │
+  │◀── Blocked (0.0.0.0) ──┤                                   │
 ```
 
 1. **Partitioning**: The 1.2MB filter is divided into **18,750 blocks** of **64 bytes (512 bits)** each.
@@ -67,31 +84,33 @@ sequenceDiagram
 
 To serve a rich React-like UI without exhausting the ESP32's limited LwIP socket pool (max 8 concurrent connections), the system employs a **3-Stage Progressive Loading** architecture combined with network-level TCP tuning.
 
-```mermaid
-sequenceDiagram
-    participant B as Browser
-    participant E as ESP32 Server
-    
-    Note over B, E: Stage 1: Bootstrap
-    B->>E: GET /
-    E-->>B: 200 OK (index.html, 1KB) [Connection: close]
-    
-    Note over B, E: Stage 2: Version Check & Cache
-    B->>E: GET /api/ui/version
-    E-->>B: {"v": "23330-36"}
-    alt UI not in localStorage OR version changed
-        B->>E: GET /api/ui (Accept-Encoding: gzip)
-        E-->>B: 200 OK (app.html.gz, 6KB)
-        B->>B: Cache to localStorage
-    else UI already in localStorage
-        B->>B: Load UI from localStorage (Instant)
-    end
-    
-    Note over B, E: Stage 3: Polling
-    loop Every 3 seconds
-        B->>E: GET /api/stats
-        E-->>B: {"total": 1500, "blocked": 500...} (~400 bytes)
-    end
+```text
+BROWSER                                      ESP32 SERVER
+   │                                              │
+   │  ================ STAGE 1 ================   │
+   │  GET / (Bootstrap Loader)                    │
+   ├─────────────────────────────────────────────▶│
+   │◀─────────────────────────────────────────────┤
+   │  200 OK (index.html, 1KB) [Conn: close]      │
+   │                                              │
+   │  ================ STAGE 2 ================   │
+   │  GET /api/ui/version                         │
+   ├─────────────────────────────────────────────▶│
+   │◀─────────────────────────────────────────────┤
+   │  {"v": "23330-36"}                           │
+   │                                              │
+   │  [If missing or outdated in localStorage]    │
+   │  GET /api/ui (Accept-Encoding: gzip)         │
+   ├─────────────────────────────────────────────▶│
+   │◀─────────────────────────────────────────────┤
+   │  200 OK (app.html.gz, 6KB)                   │
+   │  * Browser saves to localStorage *           │
+   │                                              │
+   │  ================ STAGE 3 ================   │
+   │  GET /api/stats (Poll every 3s)              │
+   ├─────────────────────────────────────────────▶│
+   │◀─────────────────────────────────────────────┤
+   │  {"total": 1500...} (~400 bytes)             │
 ```
 
 ### TCP Delayed ACK Mitigation
