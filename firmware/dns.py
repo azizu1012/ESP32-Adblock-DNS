@@ -40,6 +40,10 @@ class DNSServer:
         "adwords.google.com", "adidas.com",
         "cdn.jsdelivr.net", "unpkg.com", "cdn.tailwindcss.com",
     )
+    SAFELIST_SUFFIX = (
+        "mihoyo.com", "hoyoverse.com", "starrails.com", "zenlesszonezero.com", 
+        "cognosphere.com", "yuanshen.com", "kurogames.com"
+    )
     KEYWORDS = (
         "telemetry", "analytics", "adserver", "adsystem",
         "doubleclick", "adcolony", "applovin", "popunder",
@@ -236,6 +240,11 @@ class DNSServer:
         # Lớp 1: Safelist tĩnh (hệ thống + custom)
         if domain in self.SAFELIST or domain in self.custom_safelist:
             return False, None
+            
+        # Bỏ qua theo đuôi tĩnh (Game, Dịch vụ đặc thù)
+        for sfx in self.SAFELIST_SUFFIX:
+            if domain.endswith(sfx):
+                return False, None
 
         # Lớp 2: Dynamic Safelist (GCT tự phục hồi)
         with self.lock:
