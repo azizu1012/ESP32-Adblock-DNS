@@ -7,8 +7,11 @@ bị xoá tự động khi load/save.
 import gc, json, os, _thread
 from time import time
 try:
-    from time import ticks_ms, ticks_diff
+    import utime
+    ticks_ms = utime.ticks_ms
+    ticks_diff = utime.ticks_diff
 except ImportError:
+    # PC Fallback
     def ticks_ms():
         import time
         return int(time.time() * 1000)
