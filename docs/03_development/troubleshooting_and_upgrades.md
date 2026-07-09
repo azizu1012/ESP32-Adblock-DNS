@@ -49,3 +49,7 @@ This document outlines the major upgrades and operational challenges resolved du
   2. Added `min-width: 0` to all dynamically injected flex containers in `app.html` (`renderRecentList` and `renderTop`).
   3. Extracted the `whitelistHtml` button out of the text span into its own `flex-shrink: 0` container. 
   This overrides the default minimum width dynamically, allowing the grid items to shrink and forcing internal long domain texts to cleanly truncate via `text-overflow: ellipsis`, keeping the dashboard perfectly bounded to the screen width permanently.
+
+### H. Codebase Maintainability vs. RAM Overhead (God File Splitting)
+- **Challenge**: The `dns.py` and `server.py` files had become monolithic "God Files" (over 600 lines each), making maintenance difficult. However, simply modularizing them using standard OOP inheritance (`class DNSServer(DNSBloom, DNSGct)`) would create massive memory overhead on the ESP32 (due to multiple `__dict__` allocations for every inherited class and instance), potentially exhausting the 134KB heap.
+- **Solution**: Implemented a **Direct Modularization pattern via Monkey Patching**. Modules like `dns_bloom.py` and `dns_gct.py` define an `attach(cls)` method that binds functions directly to the target class (`DNSServer`) at compile time. This flattened architecture splits the codebase cleanly into small, manageable files while ensuring zero RAM overhead at runtime, as the instantiated object remains a single flat class in memory.

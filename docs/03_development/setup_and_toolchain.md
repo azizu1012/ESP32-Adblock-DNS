@@ -13,8 +13,13 @@
 ```text
 ├── firmware/         # ESP32 MicroPython source code
 │   ├── boot.py       Entry point & main loop
-│   ├── dns.py        DNS proxy, Bloom Filter checking, and GCT thread
-│   ├── server.py     Web server, API endpoints, and streaming upload
+│   ├── dns.py        DNS proxy and Event Loop
+│   ├── dns_bloom.py  Bloom Filter hash & file scanning
+│   ├── dns_gct.py    Graduated Consensus Trust daemon
+│   ├── dns_upstream.py Upstream RTT measurement & failover
+│   ├── server.py     Web server TCP Socket & Core
+│   ├── server_api.py JSON API endpoints logic
+│   ├── server_static.py HTML streaming and gzip/ETag logic
 │   ├── stats.py      Rolling query statistics and persistence
 │   ├── wifi.py       WiFi connection and AP manager
 │   ├── config.py     JSON configuration load/save
