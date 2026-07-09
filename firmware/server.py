@@ -30,36 +30,47 @@ class WebServer:
         self.sock = None
 
     def start(self):
-        """Mo socket TCP, bind, listen voi timeout 1s."""
+        """Mo socket TCP, bind, listen voi backlog 8 va timeout 1s."""
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind((self.ip, self.port))
-        self.sock.listen(2)
+        # Tang backlog len 8 de hang doi TCP giu vung cac yeu cau ket noi song song thay vi lam rot (Connection Refused)
+        self.sock.listen(8)
         self.sock.settimeout(1.0)
         print(f"Web server on port {self.port}")
 
     def serve(self, wifi_manager=None):
         """Vong lap chinh: chap nhan ket noi, xu ly request, dong."""
         import gc
+        import utime
         self.start()
         while True:
             try:
-                conn, addr = self.sock.accept()
-            except OSError:
-                continue
-            try:
-                # Giam timeout xu ly xuong 1.0s de nhanh chong giai phong socket truoc spam F5
-                conn.settimeout(1.0)
-                self._handle(conn, wifi_manager)
-            except Exception as e:
-                print("HTTP serve error:", e)
-            finally:
                 try:
-                    conn.close()
-                except:
-                    pass
-                # Don dep RAM quyet liet ngay sau khi dong socket de ngan phan manh Heap
+                    conn, addr = self.sock.accept()
+                except OSError:
+                    # Tranh tight loop ngua CPU 100% khi xay ra loi tai nguyen TCP, cho phep LwIP xoa trang thai TIME_WAIT
+                    utime.sleep_ms(20)
+                    continue
+
+                try:
+                    # Thiet lap timeout doc Header cuc ngan (200ms) de tránh treo luong khi socket bi client ngat/cham
+                    conn.settimeout(0.2)
+                    self._handle(conn, wifi_manager)
+                except Exception as e:
+                    print("HTTP serve error:", e)
+                finally:
+                    try:
+                        conn.close()
+                    except:
+                        pass
+                    # Don dep RAM quyet liet ngay sau khi dong socket de ngan phan manh Heap
+                    gc.collect()
+            except Exception as e:
+                # Bat tat ca cac loi critical (ke ca MemoryError) de ngan luong Web Server bi chet
+                print("Web server critical thread error:", e)
                 gc.collect()
+                utime.sleep_ms(100)
 
     def _handle(self, conn, wifi_manager):
         """Parse HTTP request header va dieu huong den handler phu hop."""
@@ -98,6 +109,8 @@ class WebServer:
             elif path == "/api/safelist":
                 res = list(self.dns.custom_safelist) if (self.dns and hasattr(self.dns, "custom_safelist")) else []
                 self._send_json(conn, res)
+            elif path == "/favicon.ico":
+                conn.sendall(b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n")
             elif path.startswith("/api/"):
                 self._send_json(conn, {"error": "not found"})
             elif path == "/setup":
@@ -295,6 +308,11 @@ class WebServer:
     def _send_json(conn, data):
         """Gui HTTP response dang JSON - toi uu phan tach Header/Body de tranh ton RAM."""
         import gc
+        try:
+            # Dat timeout 1s cho viec truyen tai payload JSON an toan
+            conn.settimeout(1.0)
+        except:
+            pass
         gc.collect() # Giai phong dung luong truoc khi khoi tao chuoi JSON lon
         body = json.dumps(data)
         header = (
@@ -317,6 +335,11 @@ class WebServer:
         """
         import gc
         import os
+        try:
+            # Nang timeout len 2s de thuc hien stream file tinh thong suot
+            conn.settimeout(2.0)
+        except:
+            pass
         gc.collect()
         try:
             stat = os.stat(path)
