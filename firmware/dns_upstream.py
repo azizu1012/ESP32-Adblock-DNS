@@ -1,10 +1,21 @@
+"""
+dns_upstream.py
+Triển khai chiến lược The Triad Strategy cho máy chủ DNS Upstream.
+
+Quản lý việc theo dõi độ trễ (RTT) và tự động chuyển đổi sang máy chủ DNS Upstream 
+nhanh nhất (ví dụ: Google, Cloudflare, Quad9) hoàn toàn trong nền (background thread),
+đảm bảo thời gian chết (downtime) là 0ms đối với người dùng (Zero-Downtime Atomic Swap).
+"""
 import time
 import socket
 import gc
 import _thread
 
 def _measure_rtt(self, ip, timeout_ms=300):
-    """Đo độ trễ RTT tới một IP bằng cách gửi DNS query cho google.com."""
+    """
+    Đo độ trễ RTT (Round-Trip Time) tới một IP bằng cách gửi DNS query cho google.com.
+    Hàm này tạo một UDP socket tạm thời, gửi gói tin và chờ phản hồi.
+    """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.settimeout(timeout_ms / 1000.0)
     try:
@@ -22,13 +33,20 @@ def _measure_rtt(self, ip, timeout_ms=300):
     return 999999
 
 def _optimize_worker(self, wifi_manager):
-    """Luồng ngầm đo độ trễ tới nhiều DNS server và chọn upstream tối ưu nhất."""
+    """
+    Luồng ngầm (Background Worker) đo độ trễ tới nhiều DNS server và chọn upstream tối ưu nhất.
+    Trong quá trình chạy mất khoảng 1.5 giây, luồng chính vẫn phục vụ client bằng upstream cũ.
+    Khi tìm được upstream tốt nhất, nó thực hiện Atomic Swap (tráo đổi nguyên tử).
+    """
     if wifi_manager:
         self.wifi = wifi_manager
     else:
         wifi_manager = self.wifi
 
+    # Danh sách các Public DNS uy tín
     candidates = ["1.1.1.1", "8.8.8.8", "9.9.9.9", "1.0.0.1", "8.8.4.4"]
+    
+    # Ưu tiên thêm DNS cấp bởi nhà mạng qua DHCP (nếu có)
     if wifi_manager and wifi_manager.is_connected():
         try:
             dhcp_dns = wifi_manager.ifconfig()[3]
@@ -52,6 +70,7 @@ def _optimize_worker(self, wifi_manager):
             best_rtt = rtt
             best_ip = ip
 
+    # Cập nhật Upstream Server bằng thao tác nguyên tử (Atomic Swap)
     if best_rtt < 999999:
         self.upstream_ip = best_ip
         self.upstream_rtt = best_rtt
@@ -70,7 +89,11 @@ def _optimize_worker(self, wifi_manager):
     gc.collect()
 
 def optimize_upstream(self, wifi_manager=None):
-    """Kích hoạt luồng ngầm tối ưu hóa DNS mà không gây block."""
+    """
+    Kích hoạt luồng ngầm tối ưu hóa DNS mà không gây nghẽn (block) vòng lặp chính.
+    Được gọi định kỳ mỗi 2 tiếng, hoặc tự động kích hoạt (Reactive Congestion Control) 
+    nếu phát hiện upstream hiện tại chậm đi đột ngột.
+    """
     if self._is_optimizing:
         return
     self._is_optimizing = True
@@ -81,6 +104,7 @@ def optimize_upstream(self, wifi_manager=None):
         self._is_optimizing = False
 
 def attach(cls):
+    """Monkey patching."""
     cls._measure_rtt = _measure_rtt
     cls._optimize_worker = _optimize_worker
     cls.optimize_upstream = optimize_upstream
