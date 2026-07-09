@@ -89,15 +89,18 @@ class WebServer:
             path = header_part.split(" ")[1] if " " in header_part else "/"
             method = header_part.split(" ")[0] if " " in header_part else "GET"
 
-            # Parse If-None-Match header de ho tro HTTP caching (304 Not Modified)
+            # Parse If-None-Match va Accept-Encoding headers
             if_none_match = None
+            accept_gzip = False
             lines = header_part.split("\r\n")
             for line in lines[1:]:
                 if ":" in line:
                     k, v = line.split(":", 1)
-                    if k.strip().lower() == "if-none-match":
+                    kl = k.strip().lower()
+                    if kl == "if-none-match":
                         if_none_match = v.strip()
-                        break
+                    elif kl == "accept-encoding" and "gzip" in v.lower():
+                        accept_gzip = True
 
             if path == "/api/upload":
                 conn.settimeout(120.0)
@@ -110,6 +113,17 @@ class WebServer:
                 self._send_json(conn, self.stats.to_recent_list() if self.stats else [])
             elif path == "/api/stats/top":
                 self._send_json(conn, self.stats.to_top_list() if self.stats else [])
+            elif path == "/api/ui/version":
+                # Stage 1: Tra ve version cua UI bundle (~30 bytes) de client kiem tra cache
+                try:
+                    st = os.stat("web/app.html")
+                    v = f"{st[6]}-{st[8] if len(st) > 8 else 0}"
+                except:
+                    v = "0"
+                self._send_json(conn, {"v": v})
+            elif path == "/api/ui":
+                # Stage 2: Stream full UI bundle (chi khi client chua co hoac version cu)
+                self._stream_file(conn, "web/app.html", if_none_match, accept_gzip)
             elif path == "/api/safelist":
                 res = list(self.dns.custom_safelist) if (self.dns and hasattr(self.dns, "custom_safelist")) else []
                 self._send_json(conn, res)
@@ -118,9 +132,10 @@ class WebServer:
             elif path.startswith("/api/"):
                 self._send_json(conn, {"error": "not found"})
             elif path == "/setup":
-                self._stream_file(conn, "web/setup.html", if_none_match)
+                self._stream_file(conn, "web/setup.html", if_none_match, accept_gzip)
             else:
-                self._stream_file(conn, "web/index.html", if_none_match)
+                # Stage 1: Bootstrap loader (~1KB)
+                self._stream_file(conn, "web/index.html", if_none_match, accept_gzip)
         except Exception as e:
             print("Handle error:", e)
 
@@ -340,23 +355,34 @@ class WebServer:
             f"Content-Length: {len(body)}\r\n"
             "\r\n"
         )
-        conn.sendall(header.encode())
-        conn.sendall(body.encode())
-
+        # Combine header and body to avoid TCP Delayed ACK (200ms latency on some OSes)
+        conn.sendall(header.encode() + body.encode())
     @staticmethod
-    def _stream_file(conn, path, if_none_match=None):
-        """Stream file HTML tu flash ho tro HTTP caching (ETag & 304 Not Modified).
+    def _stream_file(conn, path, if_none_match=None, accept_gzip=False):
+        """Stream file HTML tu flash, uu tien file .gz nen san neu trinh duyet ho tro.
         
-        Neu file chua thay doi, client tu lay tu cache ma ko can server doc tu flash hay truyen tai lai.
+        Gzip pre-compression giam 23KB -> ~5KB, giai phong socket nhanh hon 4x.
+        ETag caching tra ve 304 ngay lap tuc khi file chua doi.
         """
         import gc
         import os
         try:
-            # Nang timeout len 2s de thuc hien stream file tinh thong suot
             conn.settimeout(2.0)
         except:
             pass
         gc.collect()
+
+        # Kiem tra file .gz nen san co ton tai va trinh duyet co ho tro gzip khong
+        gz_path = path + ".gz"
+        use_gzip = False
+        if accept_gzip:
+            try:
+                os.stat(gz_path)
+                use_gzip = True
+            except OSError:
+                pass
+
+        # Stat file goc de tinh ETag (luon dua tren file goc, khong phai file .gz)
         try:
             stat = os.stat(path)
             size = stat[6]
@@ -368,10 +394,10 @@ class WebServer:
             )
             return
 
-        # ETag dua tren kich thuoc va thoi gian sua doi cua file
-        etag = f'"{size}-{mtime}"'
+        # ETag dua tren kich thuoc va thoi gian sua doi cua file goc
+        etag = f'"{ size}-{mtime}"'
 
-        # Neu ma ETag trung khop, tra ve 304 ngay lap tuc de khong ton RAM doc/gui du lieu
+        # Neu ETag trung khop, tra ve 304 ngay lap tuc
         if if_none_match == etag:
             resp = (
                 "HTTP/1.1 304 Not Modified\r\n"
@@ -382,25 +408,34 @@ class WebServer:
             conn.sendall(resp.encode())
             return
 
+        # Xac dinh file thuc te se stream (nen hoac goc)
+        if use_gzip:
+            gz_stat = os.stat(gz_path)
+            send_size = gz_stat[6]
+            send_path = gz_path
+        else:
+            send_size = size
+            send_path = path
+
         header = (
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: text/html; charset=utf-8\r\n"
             "Cache-Control: no-cache, must-revalidate\r\n"
             f"ETag: {etag}\r\n"
-            "Connection: close\r\n"
-            f"Content-Length: {size}\r\n"
+            + ("Content-Encoding: gzip\r\n" if use_gzip else "")
+            + "Connection: close\r\n"
+            f"Content-Length: {send_size}\r\n"
             "\r\n"
         )
-        conn.sendall(header.encode())
-
-        # Pre-allocate buffer mot lan duy nhat, tai su dung xuyen suot
-        buf = bytearray(4096)
-        with open(path, "rb") as f:
+        # Combine header and the first chunk to avoid TCP Delayed ACK
+        with open(send_path, "rb") as f:
+            first_chunk = f.read(4096)
+            conn.sendall(header.encode() + first_chunk)
             while True:
-                n = f.readinto(buf)
-                if not n:
+                chunk = f.read(4096)
+                if not chunk:
                     break
-                conn.sendall(buf if n == 4096 else buf[:n])
+                conn.sendall(chunk)
 
     @staticmethod
     def _redirect(conn, path="/"):

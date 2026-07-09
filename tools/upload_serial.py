@@ -5,7 +5,29 @@ SYS_PATH = os.path.dirname(os.path.dirname(__file__))
 FIRMWARE = os.path.join(SYS_PATH, "firmware")
 FILES = ["boot.py", "config.py", "wifi.py", "stats.py", "dns.py", "ddns.py", "server.py"]
 WEB_DIR = os.path.join(FIRMWARE, "web")
-WEB_FILES = ["index.html", "setup.html"]
+WEB_FILES = ["index.html", "app.html", "setup.html"]
+
+# Auto-compress HTML files with gzip before upload
+def ensure_gzip():
+    """Nén gzip các file HTML nếu chưa có file .gz hoặc .gz cũ hơn file gốc."""
+    import gzip
+    compressed = []
+    for name in ["app.html", "setup.html"]:
+        src = os.path.join(WEB_DIR, name)
+        dst = src + ".gz"
+        if not os.path.exists(src):
+            continue
+        # Nén lại nếu .gz không tồn tại hoặc cũ hơn file gốc
+        if not os.path.exists(dst) or os.path.getmtime(src) > os.path.getmtime(dst):
+            with open(src, "rb") as f_in:
+                data = f_in.read()
+            with gzip.open(dst, "wb", compresslevel=9) as f_out:
+                f_out.write(data)
+            orig = len(data)
+            comp = os.path.getsize(dst)
+            print(f"  Compressed {name}: {orig:,} -> {comp:,} bytes ({(1-comp/orig)*100:.0f}% smaller)")
+            compressed.append(name + ".gz")
+    return compressed
 
 try:
     import serial
@@ -73,9 +95,13 @@ def main():
     time.sleep(0.1)
     ser.reset_input_buffer()
 
-    # Upload các file Python và Web
+    # Auto-compress HTML trước khi upload
+    gz_files = ensure_gzip()
+    
+    # Upload các file Python và Web (bao gồm cả .gz)
     # Gộp chung vào danh sách để tải lên đồng bộ theo chunk
-    all_files = [(fname, fname, "wb") for fname in FILES] + [("web/" + fname, "web/" + fname, "wb") for fname in WEB_FILES]
+    web_all = WEB_FILES + gz_files
+    all_files = [(fname, fname, "wb") for fname in FILES] + [("web/" + fname, "web/" + fname, "wb") for fname in web_all]
     
     # Tạo thư mục web trên ESP32 nếu chưa có
     raw_cmd(ser, "import os\ntry:\n    os.mkdir('web')\nexcept:\n    pass")
