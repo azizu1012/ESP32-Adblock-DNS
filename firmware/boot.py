@@ -34,6 +34,30 @@ def blink_off(duration=150):
     led_timer.init(period=duration, mode=Timer.ONE_SHOT, callback=led_on)
 
 
+def led_heartbeat_thread():
+    """Nhịp tim sinh học kép (Lub-Dub) chạy ngầm trên luồng riêng, không nghẽn luồng chính."""
+    import random
+    while True:
+        try:
+            # Nhịp nghỉ ngẫu nhiên 4-7 giây làm thiết bị sinh động
+            time.sleep(random.randint(4, 7))
+            
+            # Nhịp 1 (Lub): tắt nhanh 50ms rồi bật lại
+            led.value(0)
+            time.sleep(0.05)
+            led.value(1)
+            
+            # Giãn cách 120ms
+            time.sleep(0.12)
+            
+            # Nhịp 2 (Dub): tắt nhanh 50ms rồi bật lại mặc định
+            led.value(0)
+            time.sleep(0.05)
+            led.value(1)
+        except Exception:
+            pass
+
+
 def handle_boot_button():
     """Kiểm tra nút BOOT: giữ 3 giây → xoá config + reset."""
     if boot_btn.value() == 0:
@@ -75,17 +99,16 @@ if cfg.get("ssid") and wifi.connect(cfg):
     dns.start()
     print("System ready!")
     led.value(1) # LED luôn sáng mặc định
+    
+    # Khởi chạy luồng nhịp tim ngầm độc lập
+    _thread.start_new_thread(led_heartbeat_thread, ())
 
     wdt = WDT(timeout=30_000)
     ddns = DDNSUpdater()
-    last_hb = time.time()
+    
     while True:
         try:
             handle_boot_button()
-            now = time.time()
-            if now - last_hb >= 10:
-                last_hb = now
-                blink_off(60) # Nháy tắt 60ms làm nhịp heartbeat
             try:
                 if dns.poll():
                     blink_off(100) # Tắt hẳn 100ms khi có truy vấn bị chặn
