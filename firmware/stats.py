@@ -21,7 +21,7 @@ CAT_RULES = (
              "criteo", "pubmatic", "adsystem", "adservice", "adserver", "advertising"]),
     ("tracking", ["track", "pixel", "beacon", "click"]),
     ("telemetry", ["telemetry", "diagnostics", "monitor", "metrics", "appinsight", 
-                   "events.data", "prod.otel", "functional.events", "dc.services", "settings-win"]),
+                   "events.data", "prod.otel", "functional.events", "dc.services", "settings-win", "inputsuggestions"]),
     ("analytics", ["analytics", "firebaselogging", "firebase-settings", "log-upload"]),
     ("privacy", ["mask.apple-dns", "mask-h2", "mask.icloud"]),
     ("malware", ["malware", "phish", "ransom", "trojan", "exploit", "c2.", "shadowserver"]),
