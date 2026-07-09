@@ -1,8 +1,15 @@
+"""
+server_static.py
+Quản lý việc truyền phát (streaming) các file tĩnh như HTML, CSS, JS từ Flash của ESP32.
+Sử dụng kỹ thuật chunking để không làm tràn RAM khi file quá lớn.
+Hỗ trợ Gzip Pre-compression và ETag caching để tối ưu tốc độ tải trang.
+"""
 def _stream_file(conn, path, if_none_match=None, accept_gzip=False):
-    """Stream file HTML tu flash, uu tien file .gz nen san neu trinh duyet ho tro.
-    
-    Gzip pre-compression giam 23KB -> ~5KB, giai phong socket nhanh hon 4x.
-    ETag caching tra ve 304 ngay lap tuc khi file chua doi.
+    """
+    Stream file tĩnh từ flash, ưu tiên file .gz nén sẵn nếu trình duyệt hỗ trợ.
+    Gzip pre-compression giảm dung lượng 23KB -> ~5KB, giải phóng socket nhanh hơn 4x.
+    Tích hợp cơ chế ETag Caching (If-None-Match), trả về 304 Not Modified ngay lập tức 
+    khi file không đổi để chống nghẽn do DDoS / F5 spamming.
     """
     import gc
     import os

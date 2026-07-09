@@ -1,8 +1,17 @@
+"""
+server_api.py
+Chứa toàn bộ logic xử lý các HTTP API Endpoints (GET, POST) cho Web Server.
+Được module hóa qua kỹ thuật Monkey Patching để giảm tải RAM cho WebServer class.
+Chịu trách nhiệm render JSON stats, cấu hình WiFi, DDNS, Upload Blocked DB, v.v.
+"""
 import json
 import time
 
 def _handle_post(self, conn, data, path, wifi_manager):
-    """Xu ly POST request: config wifi, reboot, reset, dhcp."""
+    """
+    Xử lý các request POST: lưu cấu hình WiFi, DDNS, Reboot, Factory Reset.
+    Bóc tách payload JSON từ HTTP body để tương tác với ConfigManager.
+    """
     request = data.decode("utf-8")
     if path == "/api/config/wifi":
         body = self._parse_body(request)
