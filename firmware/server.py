@@ -74,6 +74,24 @@ class WebServer:
 
     def _handle(self, conn, wifi_manager):
         """Parse HTTP request header va dieu huong den handler phu hop."""
+        import time
+        now = time.time()
+        if not hasattr(self, "_rate_limit"):
+            self._rate_limit = (now, 0)
+        
+        rl_time, rl_count = self._rate_limit
+        if now - rl_time > 1.0:
+            self._rate_limit = (now, 1)
+        else:
+            if rl_count > 15:
+                # Anti-DDoS: Drop instantly if >15 reqs/sec
+                try:
+                    conn.sendall(b"HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n")
+                except:
+                    pass
+                return
+            self._rate_limit = (rl_time, rl_count + 1)
+            
         try:
             buf = conn.recv(1024)
             if not buf:
