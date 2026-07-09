@@ -77,3 +77,22 @@ curl -X POST http://<ESP32_IP>/api/reboot
 - **Self-Healing**: If a domain is blocked by the Bloom Filter but is actually clean, GCT verification audits it in the background and dynamic-whitelists it temporarily.
 - **IPv6 AAAA Queries**: Intercepted and returned as `::` (16 zero bytes) to prevent client delays when AAAA queries fail to resolve.
 - **Hardware Specs**: The ESP32-D0WD-V3 has 2 cores @ 240 MHz, ~520 KB SRAM (GC heap configured to ~132 KB), and 4 MB raw flash (2 MB LittleFS partition).
+
+## Upgrades & Operational Challenges Resolved (July 2026)
+
+### 1. New Features & Functional Upgrades
+- **7-Category Multi-tag System**: Expanded from 5 generic groups to 7 specific categories (`ADS`, `TRK`, `TEL`, `ANL`, `PRV`, `MAL`, `EXP`). It supports multi-tag list formatting (e.g. `doubleclick.net` returns `['ads', 'tracking']`), displayed side-by-side on the dashboard.
+- **Interactive Custom Whitelist Management**: Integrated quick-whitelisting `⊕` buttons on the dashboard, alongside a full whitelist editor card and GCT probation list tracker at `/setup` writing directly to `safelist.txt` on flash.
+- **Active Clients KPI**: Tracks active querying client IPs over a rolling 10-minute window in memory.
+- **Smooth Ticking Uptime**: Implemented local JavaScript clock running at 1s intervals, syncing with authoritative ESP32 system uptime every 3s via AJAX.
+- **Bonjour/mDNS/DNS-SD Bypass**: Stripped legacy blocked `.arpa` and `.local` entries from persistent `stats.json` history on startup, ensuring local discovery never breaks or shows up in the blocked logs.
+
+### 2. Operational Challenges & Solutions
+
+#### A. UART Input Buffer Overflow
+- **Challenge**: When uploading Python or HTML files larger than 12KB over raw REPL (`boot.py`, `server.py`, `index.html`), transmitting the file as a single line command overflowed the ESP32's internal UART buffer, leading to random data truncation and boot syntax errors (`SyntaxError: invalid syntax`).
+- **Solution**: Refactored the serial uploader `tools/upload_serial.py` to upload files in **512-byte binary chunks** with raw command feedback verification. This completely solved data truncation issues.
+
+#### B. Aggressive Browser Caching & BLK Badges
+- **Challenge**: The absence of caching HTTP headers caused browsers to cache the old `index.html` template. When the API was upgraded to return category lists (e.g. `['analytics']` or `['ads', 'tracking']`), the cached JS template failed to map the list variables to `catMap`, falling back to rendering default `BLK` badges.
+- **Solution**: Added `Cache-Control: no-cache, no-store, must-revalidate` HTTP headers to all JSON stats endpoints and HTML streaming routines in `server.py`, enforcing clean loads on browser visits.
