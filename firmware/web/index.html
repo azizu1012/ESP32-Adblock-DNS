@@ -206,13 +206,41 @@ function render(d){
     }
   }
   
-  var rl=document.getElementById('listR')
-  if(!d.recent||!d.recent.length){rl.innerHTML='<div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">Waiting for queries&#8230;</div>'}
-  else{rl.innerHTML=d.recent.slice(-30).reverse().map(function(r){var t=r[3]<3?'now':r[3]<60?r[3]+'s':Math.floor(r[3]/60)+'m';return'<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px"><span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;'+(r[1]?'background:rgba(239,68,68,.15);color:#ef4444':'background:rgba(34,197,94,.15);color:#22c55e')+'">'+(r[1]?'BLK':'OK')+'</span>'+(r[5]?'<span style="color:#64748b;font-size:11px;font-family:monospace">['+r[5]+']</span>':'')+'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r[0]+'</span><span style="color:#64748b;font-size:11px">'+t+'</span></div>'}).join('')}
+  var rl=document.getElementById('listR');
+  var catMap={
+    ads:{label:'ADS',bg:'rgba(16,185,129,.15)',text:'#10b981'},
+    tracking:{label:'TRK',bg:'rgba(59,130,246,.15)',text:'#3b82f6'},
+    telemetry:{label:'TEL',bg:'rgba(139,92,246,.15)',text:'#8b5cf6'},
+    malware:{label:'MAL',bg:'rgba(249,115,22,.15)',text:'#f97316'},
+    social:{label:'SOC',bg:'rgba(236,72,153,.15)',text:'#ec4899'}
+  };
   
-  var tl=document.getElementById('listT')
+  if(!d.recent||!d.recent.length){rl.innerHTML='<div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">Waiting for queries&#8230;</div>'}
+  else{
+    rl.innerHTML=d.recent.slice(-30).reverse().map(function(r){
+      var t=r[3]<3?'now':r[3]<60?r[3]+'s':Math.floor(r[3]/60)+'m';
+      var tagHtml='';
+      if(!r[1]){
+        tagHtml='<span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;background:rgba(34,197,94,.15);color:#22c55e">OK</span>';
+      }else{
+        var style=catMap[r[2]]||{label:'BLK',bg:'rgba(239,68,68,.15)',text:'#ef4444'};
+        tagHtml='<span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;background:'+style.bg+';color:'+style.text+'">'+style.label+'</span>';
+      }
+      return '<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px">'+tagHtml+(r[5]?'<span style="color:#64748b;font-size:11px;font-family:monospace">['+r[5]+']</span>':'')+'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r[0]+'</span><span style="color:#64748b;font-size:11px">'+t+'</span></div>';
+    }).join('');
+  }
+  
+  var tl=document.getElementById('listT');
   if(!d.top||!d.top.length){tl.innerHTML='<div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">No blocks yet</div>'}
-  else{var mx=d.top[0].c;tl.innerHTML=d.top.map(function(x,i){return'<div style="display:flex;align-items:center;gap:8px;padding:6px 0"><span style="font-size:12px;color:#64748b;min-width:20px">'+(i+1)+'.</span><div style="flex:1;min-width:0"><div style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+x.d+'</div><div style="width:100%;height:3px;background:rgba(255,255,255,.06);border-radius:2px;margin-top:3px"><div style="height:100%;border-radius:2px;background:#ef4444;width:'+Math.round(x.c/mx*100)+'%"></div></div></div><span style="font-size:12px;color:#94a3b8;font-weight:600;min-width:32px;text-align:right">'+x.c+'</span></div>'}).join('')}
+  else{
+    var mx=d.top[0].c;
+    tl.innerHTML=d.top.map(function(x,i){
+      var style=catMap[x.g]||{label:'BLK',bg:'rgba(239,68,68,.15)',text:'#ef4444'};
+      var barColor=style.text;
+      var catLabel=style.label;
+      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0"><span style="font-size:12px;color:#64748b;min-width:20px">'+(i+1)+'.</span><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><div style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+x.d+'</div><span style="font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;background:'+style.bg+';color:'+style.text+';letter-spacing:.3px">'+catLabel+'</span></div><div style="width:100%;height:3px;background:rgba(255,255,255,.06);border-radius:2px;margin-top:3px"><div style="height:100%;border-radius:2px;background:'+barColor+';width:'+Math.round(x.c/mx*100)+'%"></div></div></div><span style="font-size:12px;color:#94a3b8;font-weight:600;min-width:32px;text-align:right">'+x.c+'</span></div>';
+    }).join('');
+  }
 }
 async function poll(){try{render(await(await fetch('/api/stats')).json())}catch(e){}}
 poll();setInterval(poll,3000);lucide.createIcons()
