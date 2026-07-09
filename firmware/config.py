@@ -16,7 +16,7 @@ class ConfigManager:
         try:
             with open(cls.FILE) as f:
                 return json.load(f)
-        except:
+        except Exception:
             return {}
 
     @classmethod
@@ -30,5 +30,5 @@ class ConfigManager:
         """Xoá file config (factory reset)."""
         try:
             os.remove(cls.FILE)
-        except:
+        except Exception:
             pass

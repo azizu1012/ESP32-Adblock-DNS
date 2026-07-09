@@ -15,7 +15,7 @@ def _stream_file(conn, path, if_none_match=None, accept_gzip=False):
     import os
     try:
         conn.settimeout(2.0)
-    except:
+    except Exception:
         pass
     gc.collect()
 

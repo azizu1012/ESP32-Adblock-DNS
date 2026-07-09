@@ -150,7 +150,7 @@ class Stats:
     def uptime(self):
         try:
             return max(0, int(ticks_diff(ticks_ms(), self.start_ticks) // 1000))
-        except:
+        except Exception:
             return 0
 
     @staticmethod
@@ -205,7 +205,7 @@ class Stats:
                 for cat in cats:
                     if cat in self.blocked_categories:
                         self.blocked_categories[cat] += val.get("c", 0)
-        except:
+        except Exception:
             pass
 
     def save(self):
@@ -223,7 +223,7 @@ class Stats:
             with open(FILE, "w") as f:
                 json.dump(data, f)
             self.last_save = time()
-        except:
+        except Exception:
             pass
         finally:
             self.lock.release()
@@ -240,7 +240,7 @@ class Stats:
             import os
             s = os.statvfs("/")
             return s[0] * s[3]
-        except:
+        except Exception:
             return 0
 
     @staticmethod
@@ -250,7 +250,7 @@ class Stats:
             import os
             s = os.statvfs("/")
             return s[0] * s[2]
-        except:
+        except Exception:
             return 0
 
     @staticmethod
@@ -259,7 +259,7 @@ class Stats:
         try:
             import esp
             return esp.flash_size()
-        except:
+        except Exception:
             return 0
 
     @staticmethod
@@ -270,7 +270,7 @@ class Stats:
             with open("blocked.bin", "rb") as f:
                 f.seek(-4, 2)
                 return struct.unpack("<I", f.read(4))[0]
-        except:
+        except Exception:
             return 0
 
     @staticmethod
@@ -279,7 +279,7 @@ class Stats:
         try:
             import machine
             return machine.freq() // 1000000
-        except:
+        except Exception:
             return 0
 
     @staticmethod
@@ -287,7 +287,7 @@ class Stats:
         """Số nhân CPU — ESP32-D0WD-V3 có 2 nhân."""
         try:
             return 2
-        except:
+        except Exception:
             return 1
 
     def to_dict(self):

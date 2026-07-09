@@ -26,7 +26,7 @@ def _measure_rtt(self, ip, timeout_ms=300):
         if resp and resp[:2] == b'\xaa\xbb':
             dt_us = time.ticks_diff(time.ticks_us(), t0)
             return round(dt_us / 1000.0, 1)
-    except:
+    except Exception:
         pass
     finally:
         sock.close()
@@ -52,7 +52,7 @@ def _optimize_worker(self, wifi_manager):
             dhcp_dns = wifi_manager.ifconfig()[3]
             if dhcp_dns and dhcp_dns != "0.0.0.0" and dhcp_dns not in candidates:
                 candidates.insert(0, dhcp_dns)
-        except:
+        except Exception:
             pass
 
     best_ip = self.upstream_ip

@@ -47,7 +47,7 @@ def _dns_query_raw(self, domain, server_ip, timeout=1.5):
                 if ip != b'\x00\x00\x00\x00' and ip != b'\x7f\x00\x00\x01':
                     return True
         return False
-    except:
+    except Exception:
         return False
     finally:
         sock.close()

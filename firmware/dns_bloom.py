@@ -53,7 +53,7 @@ def _bloom_search(self, domain):
                 
         # Nếu tất cả 8 bits = 1, miền này khả năng cao nằm trong danh sách đen
         return True
-    except:
+    except Exception:
         # An toàn (Fail-safe): Lỗi đọc file thì cho phép qua
         return False
 

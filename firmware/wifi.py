@@ -22,10 +22,10 @@ class WiFiManager:
         """Đặt hostname DHCP (dùng try/except vì API khác nhau giữa các bản MicroPython)."""
         try:
             network.hostname(name)
-        except:
+        except Exception:
             try:
                 network.WLAN(network.STA_IF).config(dhcp_hostname=name)
-            except:
+            except Exception:
                 pass
 
     def connect(self, cfg):

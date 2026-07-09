@@ -62,7 +62,7 @@ class WebServer:
                 finally:
                     try:
                         conn.close()
-                    except:
+                    except Exception:
                         pass
                     # Don dep RAM quyet liet ngay sau khi dong socket de ngan phan manh Heap
                     gc.collect()
@@ -87,7 +87,7 @@ class WebServer:
                 # Anti-DDoS: Drop instantly if >15 reqs/sec
                 try:
                     conn.sendall(b"HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n")
-                except:
+                except Exception:
                     pass
                 return
             self._rate_limit = (rl_time, rl_count + 1)
@@ -136,7 +136,7 @@ class WebServer:
                 try:
                     st = os.stat("web/app.html")
                     v = f"{st[6]}-{st[8] if len(st) > 8 else 0}"
-                except:
+                except Exception:
                     v = "0"
                 self._send_json(conn, {"v": v})
             elif path == "/api/ui":

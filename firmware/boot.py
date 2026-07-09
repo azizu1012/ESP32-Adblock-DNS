@@ -120,7 +120,7 @@ def main():
                     if wifi.connect(cfg):
                         try:
                             dns.optimize_upstream(wifi)
-                        except:
+                        except Exception:
                             pass
                 dns.tick(wifi)
                 stats.tick()

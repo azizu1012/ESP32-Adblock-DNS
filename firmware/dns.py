@@ -74,12 +74,12 @@ class DNSServer:
                     d = line.strip().lower()
                     if d:
                         self.custom_safelist.add(d)
-        except:
+        except Exception:
             pass
 
         try:
             gc.threshold(gc.mem_free() // 4 + gc.mem_alloc())
-        except:
+        except Exception:
             pass
 
         # Bắt đầu luồng kiểm chứng ngầm (GCT Worker)
@@ -193,7 +193,7 @@ class DNSServer:
                 labels.append(data[offset : offset + length].decode().lower())
                 offset += length
             return ".".join(labels)
-        except:
+        except Exception:
             return None
 
     def _check(self, domain):
@@ -251,7 +251,7 @@ class DNSServer:
             if domain in self.safelist_dyn:
                 try:
                     del self.safelist_dyn[domain]
-                except:
+                except Exception:
                     pass
             # Ghi cấu hình xuống file
             try:
@@ -323,7 +323,7 @@ class DNSServer:
             else:
                 answer = b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x01\x2c\x00\x04\x00\x00\x00\x00"
             return tx_id + flags + counts + question + answer
-        except:
+        except Exception:
             return b""
 
     def _async_proxy_send(self, request, client_addr, domain=None):
@@ -361,7 +361,7 @@ class DNSServer:
             print(f"[DNS] Upstream send error: {e}")
             try:
                 self.upstream.close()
-            except:
+            except Exception:
                 pass
             self.upstream = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.upstream.setblocking(False)
@@ -398,7 +398,7 @@ class DNSServer:
                     self.rtt_sum = 0
                     try:
                         self.optimize_upstream()
-                    except:
+                    except Exception:
                         pass
 
     def _cleanup_pending_queries(self):
@@ -424,7 +424,7 @@ class DNSServer:
             self.timeout_errors = 0
             try:
                 self.optimize_upstream()
-            except:
+            except Exception:
                 pass
 
 # Load external modules and attach them to DNSServer

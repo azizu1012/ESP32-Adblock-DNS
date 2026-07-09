@@ -130,7 +130,7 @@ def _parse_body(request):
         return {}
     try:
         return json.loads(parts[1])
-    except:
+    except Exception:
         return {}
 
 def _build_stats(self, wifi_manager):
@@ -145,7 +145,7 @@ def _build_stats(self, wifi_manager):
         if wifi_manager and wifi_manager.is_connected():
             try:
                 d["ip"] = wifi_manager.ifconfig()[0]
-            except:
+            except Exception:
                 pass
         return d
     d = self.stats.to_dict()
@@ -154,7 +154,7 @@ def _build_stats(self, wifi_manager):
     if wifi_manager and wifi_manager.is_connected():
         try:
             d["ip"] = wifi_manager.ifconfig()[0]
-        except:
+        except Exception:
             pass
 
     # Calculate active clients in last 10 minutes (600s)
@@ -174,12 +174,12 @@ def _build_stats(self, wifi_manager):
             del self.stats.client_ips[ip]
         if count > 0:
             active_clients = count
-    except:
+    except Exception:
         pass
     finally:
         try:
             self.stats.lock.release()
-        except:
+        except Exception:
             pass
     d["active_clients"] = active_clients
 
@@ -188,7 +188,7 @@ def _build_stats(self, wifi_manager):
     if self.dns:
         try:
             d["safelist_dyn"] = self.dns.get_safelist_dyn()
-        except:
+        except Exception:
             pass
 
     return d
@@ -201,7 +201,7 @@ def _get_cpu_temp():
         if raw < 50 or raw > 200:
             return None
         return round((raw - 32) / 1.8, 1)
-    except:
+    except Exception:
         return None
 
 def _serve_api_cached(self, conn, endpoint, builder_func, ttl=1.5):
@@ -220,7 +220,7 @@ def _serve_api_cached(self, conn, endpoint, builder_func, ttl=1.5):
             try:
                 conn.settimeout(1.0)
                 conn.sendall(cached_bytes)
-            except:
+            except Exception:
                 pass
             return
 
@@ -245,7 +245,7 @@ def _serve_api_cached(self, conn, endpoint, builder_func, ttl=1.5):
     try:
         conn.settimeout(1.0)
         conn.sendall(response_bytes)
-    except:
+    except Exception:
         pass
 
 def _send_json(conn, data):
@@ -254,7 +254,7 @@ def _send_json(conn, data):
     try:
         # Dat timeout 1s cho viec truyen tai payload JSON an toan
         conn.settimeout(1.0)
-    except:
+    except Exception:
         pass
     gc.collect() # Giai phong dung luong truoc khi khoi tao chuoi JSON lon
     body = json.dumps(data)
