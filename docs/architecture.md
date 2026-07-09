@@ -124,6 +124,11 @@ conn.sendall(body.encode())
 conn.sendall(header.encode() + body.encode())
 ```
 
+### Global Shared State Caching
+To survive aggressive concurrent requests (e.g., F5 spamming or multiple open tabs) and prevent `MemoryError` induced crashes on the main thread:
+1. **Byte-level Response Caching**: Heavy endpoints like `/api/stats` generate the JSON exactly once and cache the entire HTTP Response (Header + Body) as raw `bytes` for 1.5 seconds.
+2. **Zero-Allocation Distribution**: If 100 requests arrive within the TTL window, the ESP32 pumps the cached binary buffer directly into the LwIP sockets. This requires zero `json.dumps()` overhead and prevents TCP PCB exhaustion without starving the DNS core.
+
 ---
 
 ## 4. Graduated Consensus Trust (GCT)
