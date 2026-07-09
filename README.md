@@ -1,68 +1,65 @@
-# ESP32 AdBlocker DNS
+<div align="center">
+  <h1>🛡️ ESP32 AdBlocker DNS</h1>
+  <p><b>A high-performance, network-wide ad and tracker blocker built for MicroPython on the ESP32.</b></p>
 
-A high-performance, network-wide ad and tracker blocker running on the ESP32 with MicroPython.
+  <p>
+    <a href="https://micropython.org"><img src="https://img.shields.io/badge/MicroPython-1.22+-blue.svg?logo=micropython" alt="MicroPython"></a>
+    <a href="#"><img src="https://img.shields.io/badge/Hardware-ESP32-red.svg" alt="Hardware"></a>
+    <a href="#"><img src="https://img.shields.io/badge/Domains-230K+-success.svg" alt="Domains"></a>
+  </p>
+</div>
 
-## Advanced Features
+---
 
-- **230K+ Unique Blocked Domains** — Compiled from HaGeZi Multi PRO + HostsVN, subdomain-deduplicated down to exactly 230,003 unique entries.
-- **Blocked Bloom Filter (BBF)** — Replaces slow binary file searches with a fixed **1.2MB** bitmap (18,750 blocks of 64 bytes). Lookups are performed in **under 1ms** with exactly **one flash read** and **zero dynamic RAM allocation** using a pre-allocated static buffer.
-- **Graduated Consensus Trust (GCT)** — An autonomous self-healing framework. When a domain triggers a block, GCT audits it in a background thread using a 3/3 consensus of public DNS upstreams (AdGuard, Control D, Mullvad) against Google DNS. If clean, the domain is whitelisted on a probationary dynamic safelist with graduated trust lifetimes (5 mins ➔ 1 hour ➔ 24 hours).
-- **Suspicious Client Demotion** — Actively monitors client query rates on dynamic whitelisted domains. If queries exceed 30 requests/minute, the domain is instantly demoted and locked back into the blacklist to prevent exploit/malware beacons.
-- **Local Network Discovery Bypass** — Instantly bypasses blocking and computation for `.local` (mDNS) and `.arpa` (Reverse DNS & Service Discovery) requests to ensure smart-home services (AirPlay, Chromecast, printers) run with zero latency.
-- **Dynamic Load-Aware Latency Optimization** — Passive latency measurement rotates upstream DNS to the fastest, lowest-latency responder (Cloudflare, Google, etc.) dynamically.
-- **3-Stage Progressive Web UI** — Prevents memory exhaustion (OOM) and LwIP socket starvation when multiple clients load the dashboard.
-  1. A tiny 1KB Bootstrap loader is served instantly.
-  2. The UI version is validated; if missing/outdated, a Gzip-compressed bundle (~6KB, down from 23KB) is downloaded and cached locally in `localStorage`.
-  3. Subsequent visits load instantly from local cache without stressing the ESP32.
-- **TCP Delayed ACK Mitigation** — HTTP headers and JSON bodies/file chunks are combined into a single byte string before `socket.sendall()`. This eliminates the 200ms Delayed ACK latency penalty on Windows/iOS clients, enabling sub-50ms API responses.
-- **Streaming Web Uploader** — Uploads the 1.2MB `blocked.bin` database over WiFi in under 20 seconds. Memory-safe streaming runs garbage collection (`gc.collect()`) every 8KB to run smoothly on the ESP32's limited 132KB heap.
-## Quick Start
+ESP32 AdBlocker is a lightweight DNS sinkhole designed to run entirely on a low-cost ESP32 microcontroller. It blocks ads, trackers, and telemetry across your entire home network using a highly optimized Bloom Filter and progressive Web UI.
 
-### 1. Flash MicroPython to ESP32
+## ✨ Key Features
+
+- **Massive Blocklist**: Blocks **230,000+** unique domains (HaGeZi + HostsVN) using a 1.2MB Blocked Bloom Filter (BBF).
+- **Sub-Millisecond Resolution**: Domain lookup takes `< 1ms` with zero dynamic RAM allocation, directly from flash.
+- **Autonomous Self-Healing**: Uses **Graduated Consensus Trust (GCT)** to automatically whitelist false positives by polling upstream adblockers.
+- **Ultra-Fast Web UI**: A beautiful, 3-stage progressive loading dashboard with Gzip compression and TCP latency mitigation.
+- **OTA Updates**: Stream and update the 1.2MB blocklist over WiFi in under 20 seconds.
+
+> 📖 **Read the full technical breakdown in our [Architecture Reference](docs/architecture.md)**.
+
+## 🚀 Quick Start
+
+### 1. Flash MicroPython
+Flash MicroPython v1.22+ to your ESP32:
 ```bash
 esptool.py --chip esp32 --port COM3 erase_flash
 esptool.py --chip esp32 --port COM3 write_flash -z 0x1000 firmware.bin
 ```
 
-### 2. Upload Python Code (Serial)
+### 2. Upload Firmware
+Upload the project files via serial (takes ~5 seconds):
 ```bash
-# Uploads Python files in 5 seconds
 python tools/upload_serial.py COM3
 ```
 
-### 3. Generate Blocklist & Upload (WiFi)
+### 3. Generate & Upload Blocklist
+Generate the binary blocklist locally and upload it to the ESP32 over WiFi:
 ```powershell
-# 1. Compile blocked.bin locally
+# Compile blocked.bin
 powershell -f tools/generate_blocked_bin.ps1
 
-# 2. Upload blocked.bin over WiFi (2 seconds)
+# Upload via API
 curl -X POST -T firmware/blocked.bin http://<ESP32_IP>/api/upload
 
-# 3. Reboot the device
+# Reboot to apply
 curl -X POST http://<ESP32_IP>/api/reboot
 ```
 
-## Hardware Specifications
+## 🛠️ Hardware Requirements
 
-| Component | Spec |
-|-----------|------|
-| MCU | ESP32-D0WD-V3 (Dual-core 240 MHz, no PSRAM) |
-| Flash | 4MB chip (2MB LittleFS partition) |
-| RAM | ~520KB total (GC heap configured to ~132KB) |
-| LED Indicator | GPIO 2 (blinks every 5s on heartbeat; flashes on DNS block) |
-| BOOT Button | GPIO 0 (hold 3s to erase config and factory reset) |
+- **MCU**: ESP32-D0WD-V3 (Dual-core 240 MHz, no PSRAM required)
+- **Flash**: 4MB chip (2MB LittleFS partition)
+- **RAM**: ~132KB GC heap is sufficient
 
-## Project Structure
+## 📚 Documentation
 
-```text
-firmware/      → MicroPython source code running on the ESP32
-tools/         → Bloom Filter generator, serial uploader, and compilation scripts
-tests/         → Local unit tests validating Bloom Filter, dedup, and FNV-1a logic
-docs/          → Deep-dive architectural docs, API specs, and development guides
-```
-
-## Further Reading
-
-- [Architecture Reference](docs/architecture.md) — Pipeling, Blocked Bloom Filter, GCT, and memory tuning
-- [API Reference](docs/api.md) — REST API endpoints for stats, configs, and uploads
-- [Development Guide](docs/development.md) — Local testing and validation workflows
+Explore the `docs/` folder for in-depth information:
+- [Architecture & Optimizations](docs/architecture.md)
+- [REST API Reference](docs/api.md)
+- [Development & Testing Guide](docs/development.md)
