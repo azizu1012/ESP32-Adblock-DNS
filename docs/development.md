@@ -81,7 +81,12 @@ curl -X POST http://<ESP32_IP>/api/reboot
 ## Upgrades & Operational Challenges Resolved (July 2026)
 
 ### 1. New Features & Functional Upgrades
-- **7-Category Multi-tag System**: Expanded from 5 generic groups to 7 specific categories (`ADS`, `TRK`, `TEL`, `ANL`, `PRV`, `MAL`, `EXP`). It supports multi-tag list formatting (e.g. `doubleclick.net` returns `['ads', 'tracking']`), displayed side-by-side on the dashboard.
+- **4-Tier Local Domain Classifier**: Implemented a self-contained 4-level domain categorization algorithm directly in firmware:
+  1. *Tier 1 (Exact Match)*: Quick dict lookup for high-profile domains (e.g., `doubleclick.net` -> `["ads", "tracking"]`, `settings-win.data.microsoft.com` -> `["telemetry"]`).
+  2. *Tier 2 (Prefix Match)*: Matches domain prefixes (e.g., starts with `events.telemetry.` -> `["telemetry"]`).
+  3. *Tier 3 (Contains Match)*: Matches keywords inside the domain.
+  4. *Tier 4 (Fallback)*: Defaults to `["ads"]` for general blocks.
+- **7-Category Multi-tag System**: Expanded from 5 generic groups to 7 specific categories (`ADS`, `TRK`, `TEL`, `ANL`, `PRV`, `MAL`, `EXP`), displayed side-by-side on the dashboard.
 - **Interactive Custom Whitelist Management**: Integrated quick-whitelisting `⊕` buttons on the dashboard, alongside a full whitelist editor card and GCT probation list tracker at `/setup` writing directly to `safelist.txt` on flash.
 - **Active Clients KPI**: Tracks active querying client IPs over a rolling 10-minute window in memory.
 - **Smooth Ticking Uptime**: Implemented local JavaScript clock running at 1s intervals, syncing with authoritative ESP32 system uptime every 3s via AJAX.

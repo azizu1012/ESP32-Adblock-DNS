@@ -16,7 +16,23 @@ except ImportError:
         return t1 - t2
 
 
-CAT_RULES = (
+TIER1_EXACT = {
+    "doubleclick.net": ["ads", "tracking"],
+    "firebaselogging-pa.googleapis.com": ["analytics"],
+    "mask.apple-dns.net": ["privacy"],
+    "default.exp-tas.com": ["experiment"],
+    "settings-win.data.microsoft.com": ["telemetry"],
+    "functional.events.data.microsoft.com": ["telemetry"],
+    "prod.otel.kaizen.nvidia.com": ["telemetry"]
+}
+
+TIER2_PREFIX = (
+    ("events.telemetry.", ["telemetry"]),
+    ("prod.otel.", ["telemetry"]),
+    ("gx-target-experiments-", ["experiment"])
+)
+
+TIER3_CONTAINS = (
     ("ads", ["doubleclick", "googlead", "admob", "adnxs", "rubicon", "openx",
              "criteo", "pubmatic", "adsystem", "adservice", "adserver", "advertising"]),
     ("tracking", ["track", "pixel", "beacon", "click"]),
@@ -32,17 +48,30 @@ FILE = "stats.json"
 
 
 def categorize(domain):
-    """Phân loại domain và trả về danh sách các nhãn: ads, tracking, telemetry, analytics, privacy, malware, experiment."""
+    """Phân loại domain qua 4 tầng: Exact -> Prefix -> Contains -> Fallback."""
     domain = domain.lower()
+    
+    # Tier 1: Exact match
+    if domain in TIER1_EXACT:
+        return TIER1_EXACT[domain]
+        
+    # Tier 2: Prefix match
+    for prefix, tags in TIER2_PREFIX:
+        if domain.startswith(prefix):
+            return tags
+            
+    # Tier 3: Contains match (multi-tag collection)
     res = []
-    for cat, keywords in CAT_RULES:
+    for cat, keywords in TIER3_CONTAINS:
         for kw in keywords:
             if kw in domain:
                 res.append(cat)
                 break
-    if not res:
-        return ["ads"]
-    return res
+    if res:
+        return res
+        
+    # Tier 4: Fallback
+    return ["ads"]
 
 
 class Stats:
