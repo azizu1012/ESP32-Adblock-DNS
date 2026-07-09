@@ -23,15 +23,15 @@ boot_btn = Pin(0, Pin.IN, Pin.PULL_UP)
 led_timer = Timer(0)
 
 
-def led_off(t):
-    """Tắt LED — callback timer."""
-    led.value(0)
-
-
-def blink(duration=70):
-    """Nhấp nháy LED trong `duration` ms, dùng timer one-shot."""
+def led_on(t):
+    """Bật LED — callback timer."""
     led.value(1)
-    led_timer.init(period=duration, mode=Timer.ONE_SHOT, callback=led_off)
+
+
+def blink_off(duration=150):
+    """Tắt LED trong `duration` ms, dùng timer one-shot rồi bật lại."""
+    led.value(0)
+    led_timer.init(period=duration, mode=Timer.ONE_SHOT, callback=led_on)
 
 
 def handle_boot_button():
@@ -74,6 +74,7 @@ if cfg.get("ssid") and wifi.connect(cfg):
     _thread.start_new_thread(web.serve, (wifi,))
     dns.start()
     print("System ready!")
+    led.value(1) # LED luôn sáng mặc định
 
     wdt = WDT(timeout=30_000)
     ddns = DDNSUpdater()
@@ -82,12 +83,12 @@ if cfg.get("ssid") and wifi.connect(cfg):
         try:
             handle_boot_button()
             now = time.time()
-            if now - last_hb >= 5:
+            if now - last_hb >= 10:
                 last_hb = now
-                blink(30)
+                blink_off(60) # Nháy tắt 60ms làm nhịp heartbeat
             try:
                 if dns.poll():
-                    blink()
+                    blink_off(100) # Tắt hẳn 100ms khi có truy vấn bị chặn
             except Exception as inner:
                 print("DNS poll error:", inner)
             if not wifi.is_connected():
