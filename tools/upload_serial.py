@@ -3,7 +3,7 @@ import sys, os, time
 
 SYS_PATH = os.path.dirname(os.path.dirname(__file__))
 FIRMWARE = os.path.join(SYS_PATH, "firmware")
-FILES = ["boot.py", "config.py", "wifi.py", "stats.py", "dns.py", "ddns.py", "server.py"]
+FILES = ["boot.py", "config.py", "wifi.py", "stats.py", "dns.py", "dns_bloom.py", "dns_gct.py", "dns_upstream.py", "ddns.py", "server.py", "server_api.py", "server_static.py"]
 WEB_DIR = os.path.join(FIRMWARE, "web")
 WEB_FILES = ["index.html", "app.html", "setup.html"]
 

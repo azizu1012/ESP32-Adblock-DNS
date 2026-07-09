@@ -85,82 +85,9 @@ class DNSServer:
         # Bắt đầu luồng kiểm chứng ngầm (GCT Worker)
         _thread.start_new_thread(self._verify_worker, ())
 
-    def _measure_rtt(self, ip, timeout_ms=300):
-        """Đo độ trễ RTT tới một IP bằng cách gửi DNS query cho google.com."""
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(timeout_ms / 1000.0)
-        try:
-            t0 = time.ticks_us()
-            q = b'\xaa\xbb\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x06google\x03com\x00\x00\x01\x00\x01'
-            sock.sendto(q, (ip, 53))
-            resp, _ = sock.recvfrom(512)
-            if resp and resp[:2] == b'\xaa\xbb':
-                dt_us = time.ticks_diff(time.ticks_us(), t0)
-                return round(dt_us / 1000.0, 1)
-        except:
-            pass
-        finally:
-            sock.close()
-        return 999999
 
-    def _optimize_worker(self, wifi_manager):
-        """Luồng ngầm đo độ trễ tới nhiều DNS server và chọn upstream tối ưu nhất."""
-        if wifi_manager:
-            self.wifi = wifi_manager
-        else:
-            wifi_manager = self.wifi
 
-        candidates = ["1.1.1.1", "8.8.8.8", "9.9.9.9", "1.0.0.1", "8.8.4.4"]
-        if wifi_manager and wifi_manager.is_connected():
-            try:
-                dhcp_dns = wifi_manager.ifconfig()[3]
-                if dhcp_dns and dhcp_dns != "0.0.0.0" and dhcp_dns not in candidates:
-                    candidates.insert(0, dhcp_dns)
-            except:
-                pass
 
-        best_ip = self.upstream_ip
-        best_rtt = 999999
-        print(f"[DNS] Optimizing upstream among {candidates}...")
-        for ip in candidates:
-            r1 = self._measure_rtt(ip, 300)
-            if r1 < 999999:
-                r2 = self._measure_rtt(ip, 300)
-                rtt = (r1 + r2) // 2
-            else:
-                rtt = 999999
-            print(f"  - DNS {ip}: {rtt if rtt < 999999 else 'timeout'} ms")
-            if rtt < best_rtt:
-                best_rtt = rtt
-                best_ip = ip
-
-        if best_rtt < 999999:
-            self.upstream_ip = best_ip
-            self.upstream_rtt = best_rtt
-            self.stats.upstream_ip = best_ip
-            self.stats.upstream_rtt = best_rtt
-            print(f"[DNS] Best upstream selected: {best_ip} ({best_rtt} ms)")
-        else:
-            self.upstream_ip = "1.1.1.1"
-            self.upstream_rtt = 0
-            self.stats.upstream_ip = "1.1.1.1"
-            self.stats.upstream_rtt = 0
-            print("[DNS] No responsive upstream, fallback to 1.1.1.1")
-        
-        self.last_opt_ticks = time.ticks_ms()
-        self._is_optimizing = False
-        gc.collect()
-
-    def optimize_upstream(self, wifi_manager=None):
-        """Kích hoạt luồng ngầm tối ưu hóa DNS mà không gây block."""
-        if self._is_optimizing:
-            return
-        self._is_optimizing = True
-        try:
-            _thread.start_new_thread(self._optimize_worker, (wifi_manager,))
-        except Exception as e:
-            print(f"[DNS] Failed to start optimize thread: {e}")
-            self._is_optimizing = False
 
     def tick(self, wifi_manager=None):
         """Định kỳ và tự động tối ưu hóa dựa trên tải và độ trễ."""
@@ -371,127 +298,9 @@ class DNSServer:
         res.sort(key=lambda x: x["t"], reverse=True)
         return res
 
-    @staticmethod
-    def _fnv1a_64(data):
-        """FNV-1a 64-bit hash."""
-        h = 0xCBF29CE484222325
-        p = 0x100000001B3
-        for b in data:
-            h = ((h ^ b) * p) & 0xFFFFFFFFFFFFFFFF
-        return h
 
-    def _bloom_search(self, domain):
-        """Tìm domain trong Blocked Bloom Filter bằng 1 lần đọc Flash 64 bytes."""
-        try:
-            h = self._fnv1a_64(domain.encode("utf-8"))
-            block_idx = (h >> 32) % 18750
-            h_low = h & 0xFFFFFFFF
-            
-            with open(self.BLOCKED_BIN, "rb") as f:
-                f.seek(block_idx * 64)
-                f.readinto(self._bloom_buf)
-                
-            for i in range(8):
-                bit_pos = (h_low ^ (i * 0x5bd1e995)) % 512
-                byte_pos = bit_pos // 8
-                bit_mask = 1 << (bit_pos % 8)
-                if not (self._bloom_buf[byte_pos] & bit_mask):
-                    return False
-            return True
-        except:
-            return False
 
-    def _enqueue_verification(self, domain):
-        """Thêm domain vào hàng đợi kiểm chứng ngầm GCT nếu chưa có."""
-        with self.lock:
-            # Nếu đang trong hàng đợi hoặc safelist động chưa hết hạn, bỏ qua
-            if domain not in self.verify_queue:
-                # Giới hạn hàng đợi tối đa 20 phần tử để tránh phình RAM
-                if len(self.verify_queue) < 20:
-                    self.verify_queue.append(domain)
 
-    def _dns_query_raw(self, domain, server_ip, timeout=1.5):
-        """Gửi gói tin DNS UDP thô để xác minh trạng thái domain ở luồng phụ."""
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(timeout)
-        try:
-            # Tạo gói tin DNS Query chuẩn cho bản ghi A
-            header = b'\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00'
-            parts = domain.split('.')
-            qname = b''
-            for part in parts:
-                qname += bytes([len(part)]) + part.encode()
-            qname += b'\x00'
-            footer = b'\x00\x01\x00\x01'
-            query = header + qname + footer
-
-            sock.sendto(query, (server_ip, 53))
-            resp, _ = sock.recvfrom(512)
-            if len(resp) > 12:
-                # Đọc số lượng câu trả lời (Answer Count)
-                ancount = struct.unpack(">H", resp[6:8])[0]
-                if ancount > 0:
-                    # Kiểm tra 4 byte cuối cùng (IP phân giải)
-                    ip = resp[-4:]
-                    if ip != b'\x00\x00\x00\x00' and ip != b'\x7f\x00\x00\x01':
-                        return True  # Phân giải thành công sang IP thật
-            return False
-        except:
-            return False
-        finally:
-            sock.close()
-
-    def _verify_worker(self):
-        """Luồng phụ liên tục kiểm chứng hàng đợi bằng cơ chế đồng thuận 3/3."""
-        while True:
-            if not self.verify_queue:
-                time.sleep(2)
-                continue
-
-            domain = None
-            with self.lock:
-                if self.verify_queue:
-                    domain = self.verify_queue.pop(0)
-
-            if not domain:
-                continue
-
-            # Bước 1: Kiểm tra xem domain có chạy bình thường trên internet không
-            g_ok = self._dns_query_raw(domain, "8.8.8.8")
-            if not g_ok:
-                continue  # Bỏ qua nếu domain chết hoặc mạng mất kết nối
-
-            # Bước 2: Truy vấn chéo 3 cổng DNS chặn quảng cáo lớn
-            adg_ok = self._dns_query_raw(domain, "94.140.14.14")
-            ctd_ok = self._dns_query_raw(domain, "76.76.2.2")
-            mul_ok = self._dns_query_raw(domain, "194.242.2.12")
-
-            # Đồng thuận 3/3: Cả 3 máy chủ đều xác nhận tên miền sạch
-            if adg_ok and ctd_ok and mul_ok:
-                self._heal_domain(domain)
-            else:
-                # Nếu bất kỳ con DNS nào báo chặn, hạ cấp ngay khỏi safelist nếu đang tạm tha
-                with self.lock:
-                    if domain in self.safelist_dyn:
-                        del self.safelist_dyn[domain]
-                        print(f"[GCT] Re-blocked real ad: {domain}")
-
-    def _heal_domain(self, domain):
-        """Đưa domain vào diện tạm tha và thăng hạng cấp độ tin cậy."""
-        with self.lock:
-            level = 0
-            ttl = 300  # 5 phút mặc định cho level 0
-            if domain in self.safelist_dyn:
-                _, old_level, _ = self.safelist_dyn[domain]
-                if old_level == 0:
-                    level = 1
-                    ttl = 3600  # 1 giờ cho level 1
-                elif old_level >= 1:
-                    level = 2
-                    ttl = 86400  # 24 giờ cho level 2
-            
-            self.safelist_dyn[domain] = (time.time() + ttl, level, time.time())
-            print(f"[GCT] Self-healed {domain}: level={level}, ttl={ttl}s")
 
     @staticmethod
     def _block_response(request):
@@ -617,3 +426,22 @@ class DNSServer:
                 self.optimize_upstream()
             except:
                 pass
+
+# Load external modules and attach them to DNSServer
+try:
+    import dns_bloom
+    dns_bloom.attach(DNSServer)
+except ImportError as e:
+    print("Warning: dns_bloom module not found", e)
+
+try:
+    import dns_gct
+    dns_gct.attach(DNSServer)
+except ImportError as e:
+    print("Warning: dns_gct module not found", e)
+
+try:
+    import dns_upstream
+    dns_upstream.attach(DNSServer)
+except ImportError as e:
+    print("Warning: dns_upstream module not found", e)
