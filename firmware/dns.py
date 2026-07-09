@@ -60,6 +60,7 @@ class DNSServer:
         # Cau truc du lieu cho forwarder khong block (Async DNS proxy)
         self.pending_queries = {}
         self.tx_counter = 0
+        self._is_optimizing = False
 
         # Graduated Consensus Trust (GCT) structures
         self.lock = _thread.allocate_lock()
@@ -102,8 +103,8 @@ class DNSServer:
             sock.close()
         return 999999
 
-    def optimize_upstream(self, wifi_manager=None):
-        """Đo độ trễ tới nhiều DNS server và chọn upstream tối ưu nhất."""
+    def _optimize_worker(self, wifi_manager):
+        """Luồng ngầm đo độ trễ tới nhiều DNS server và chọn upstream tối ưu nhất."""
         if wifi_manager:
             self.wifi = wifi_manager
         else:
@@ -145,7 +146,21 @@ class DNSServer:
             self.stats.upstream_ip = "1.1.1.1"
             self.stats.upstream_rtt = 0
             print("[DNS] No responsive upstream, fallback to 1.1.1.1")
+        
+        self.last_opt_ticks = time.ticks_ms()
+        self._is_optimizing = False
         gc.collect()
+
+    def optimize_upstream(self, wifi_manager=None):
+        """Kích hoạt luồng ngầm tối ưu hóa DNS mà không gây block."""
+        if self._is_optimizing:
+            return
+        self._is_optimizing = True
+        try:
+            _thread.start_new_thread(self._optimize_worker, (wifi_manager,))
+        except Exception as e:
+            print(f"[DNS] Failed to start optimize thread: {e}")
+            self._is_optimizing = False
 
     def tick(self, wifi_manager=None):
         """Định kỳ và tự động tối ưu hóa dựa trên tải và độ trễ."""
