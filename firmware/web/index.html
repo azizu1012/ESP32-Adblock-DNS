@@ -117,9 +117,9 @@ function render(d){
   document.getElementById('lR').textContent=d.total+' queries'
   var u=d.uptime,h=Math.floor(u/3600),m=Math.floor((u%3600)/60),s=u%60
   document.getElementById('upNav').textContent=h+'h '+m+'m '+s+'s'
-  document.getElementById('sU').textContent=h+'h '+m+'m'
+  document.getElementById('sU').textContent=h+'h '+m+'m '+s+'s'
   document.getElementById('sUp').textContent=d.upstream||'--'
-  document.getElementById('sL').textContent=(d.upstream_rtt!==undefined&&d.upstream_rtt<999999)?d.upstream_rtt+' ms':'--'
+  document.getElementById('sL').textContent=(d.upstream_rtt && d.upstream_rtt<999999)?d.upstream_rtt+' ms':'--'
   var tK=Math.round((d.total_ram||0)/1024),uK=Math.round((d.alloc_ram||0)/1024),fK=Math.round((d.free_ram||0)/1024),rp=tK?Math.round(uK/tK*100):0
   document.getElementById('sR').textContent=uK+'KB/'+tK+'KB'
   document.getElementById('sRf').textContent=fK+'KB'
