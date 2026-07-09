@@ -14,14 +14,22 @@ import gc
 import time
 import _thread
 
+# Tối ưu hóa hiệu năng: Cache các hàm gọi thường xuyên (Global to Local)
+# Việc lookup biến ở cấp độ module sẽ nhanh hơn so với phải lookup qua 2 cấp độ (module.function)
+_ticks_ms = time.ticks_ms
+_ticks_diff = time.ticks_diff
+_time_sec = time.time
+_struct_unpack = struct.unpack
+_struct_pack = struct.pack
+
 # Fallback for standard Python desktop testing
 if not hasattr(time, "ticks_ms"):
     def ticks_ms():
-        return int(time.time() * 1000)
+        return int(_time_sec() * 1000)
     def ticks_diff(t1, t2):
         return t1 - t2
-    time.ticks_ms = ticks_ms
-    time.ticks_diff = ticks_diff
+    _ticks_ms = ticks_ms
+    _ticks_diff = ticks_diff
 
 
 class DNSServer:
@@ -122,32 +130,47 @@ class DNSServer:
 
     def poll(self):
         """Poll hoat dong DNS khong block: chap nhan ca truy van tu client va phan hoi tu upstream."""
+        # 1. Dọn dẹp các truy vấn quá hạn (timeout) để không rò rỉ RAM
         self._cleanup_pending_queries()
         
         try:
-            # Giam sat dong thoi ca client socket va upstream socket de forward bat dong bo
+            # 2. Lấy dữ liệu từ cả 2 nguồn: Client (gửi câu hỏi) và Upstream (trả câu trả lời)
+            # Timeout 0.05s để giải phóng vòng lặp chính
             readable, _, _ = select.select([self.sock, self.upstream], [], [], 0.05)
         except OSError:
             return False
 
+        # 3. Nếu không có dữ liệu, thực hiện dọn dẹp rác định kỳ (GC)
         if not readable:
             self._gc_tick()
             return False
 
         blocked_any = False
+        # 4. Duyệt qua các kết nối đang có dữ liệu
         for s in readable:
             if s is self.sock:
+                # ==========================================
+                # A. NHẬN TRUY VẤN TỪ CLIENT (LAPTOP, ĐIỆN THOẠI)
+                # ==========================================
                 try:
                     request, addr = self.sock.recvfrom(512)
                 except OSError:
                     continue
+                
+                # Gói tin DNS tối thiểu phải 12 bytes
                 if len(request) < 12:
                     continue
-                self.last_query_ticks = time.ticks_ms()
+                
+                # Cache lại thời gian
+                self.last_query_ticks = _ticks_ms()
+                
+                # Bóc tách tên miền từ gói tin
                 domain = self._parse_domain(request)
                 if domain:
+                    # Kiểm tra tên miền qua 5 lớp chặn
                     is_blocked, layer = self._check(domain)
                     if is_blocked:
+                        # Ghi nhận vào thống kê và chặn (trả về 0.0.0.0)
                         self.stats.add(domain, True, layer, client_ip=addr[0])
                         print(f"[DNS] {addr[0]} -> {domain} (BLOCK: {layer})")
                         resp = self._block_response(request)
@@ -158,19 +181,27 @@ class DNSServer:
                                 pass
                         blocked_any = True
                     else:
+                        # Ghi nhận cho phép và chuyển tiếp lên Upstream (Google/Cloudflare)
                         self.stats.add(domain, False, client_ip=addr[0])
                         print(f"[DNS] {addr[0]} -> {domain} (PASS)")
                         self._async_proxy_send(request, addr, domain)
                 else:
+                    # Nếu không bóc tách được (bị lỗi định dạng), cứ chuyển tiếp cho an toàn
                     self._async_proxy_send(request, addr, None)
             elif s is self.upstream:
+                # ==========================================
+                # B. NHẬN KẾT QUẢ TỪ UPSTREAM SERVER
+                # ==========================================
                 try:
                     response, _ = self.upstream.recvfrom(1024)
                 except OSError:
                     continue
+                    
                 if len(response) >= 12:
+                    # Xử lý ID khớp và gửi trả kết quả ngược về cho Client
                     self._async_proxy_recv(response)
         
+        # 5. Gom rác sau mỗi nhịp xử lý
         self._gc_tick()
         return blocked_any
 
@@ -328,15 +359,20 @@ class DNSServer:
 
     def _async_proxy_send(self, request, client_addr, domain=None):
         """Gui DNS request len upstream bang cach map TX ID ma khong he gay block."""
+        # 1. Giám sát các tên miền trong danh sách Tạm Tha (GCT Safelist)
         if domain and domain in self.safelist_dyn:
-            now_sec = time.time()
+            now_sec = _time_sec()
             count, start_t = self.query_counts.get(domain, (0, now_sec))
+            
+            # Nếu đã qua 60 giây, reset bộ đếm
             if now_sec - start_t > 60:
                 count = 1
                 start_t = now_sec
             else:
                 count += 1
             self.query_counts[domain] = (count, start_t)
+            
+            # 2. Luật Chống Lạm Dụng: Đâm quá 30 req/min sẽ bị đá lại vào Blocklist
             if count > 30:
                 print(f"[GCT] Demoted {domain} due to high activity: {count} req/min")
                 with self.lock:
@@ -344,16 +380,20 @@ class DNSServer:
                         del self.safelist_dyn[domain]
                 self.query_counts[domain] = (0, now_sec)
 
-        # Lay client TX ID de luu vet phuc hoi
-        client_tx_id = struct.unpack(">H", request[0:2])[0]
+        # 3. Lấy Transaction ID gốc của thiết bị (Laptop/Phone) để lưu vết
+        client_tx_id = _struct_unpack(">H", request[0:2])[0]
         
-        # Sinh Transaction ID duy nhat cho upstream
+        # 4. Sinh Transaction ID duy nhất của riêng ESP32 để gửi lên Upstream
         with self.lock:
             self.tx_counter = (self.tx_counter + 1) & 0xFFFF
             upstream_tx_id = self.tx_counter
             
-        self.pending_queries[upstream_tx_id] = (client_addr, client_tx_id, time.ticks_ms(), time.ticks_us())
-        modified_request = struct.pack(">H", upstream_tx_id) + request[2:]
+        # 5. Lưu lại mapping để khi có kết quả trả về, ESP32 biết đường trả về cho ai
+        self.pending_queries[upstream_tx_id] = (client_addr, client_tx_id, _ticks_ms(), time.ticks_us())
+        
+        # 6. Chế tạo lại gói tin DNS với TX ID mới
+        modified_request = _struct_pack(">H", upstream_tx_id) + request[2:]
+
         
         try:
             self.upstream.sendto(modified_request, (self.upstream_ip, self.PORT))
@@ -368,31 +408,36 @@ class DNSServer:
 
     def _async_proxy_recv(self, response):
         """Nhan phan hoi tu upstream, restore TX ID va forward ve dung client."""
-        upstream_tx_id = struct.unpack(">H", response[0:2])[0]
+        # 1. Bóc TX ID từ gói tin Upstream trả về
+        upstream_tx_id = _struct_unpack(">H", response[0:2])[0]
+        
+        # 2. Tìm kiếm trong từ điển pending_queries
         query_info = self.pending_queries.pop(upstream_tx_id, None)
         if query_info:
             client_addr, client_tx_id, start_ticks, start_us = query_info
-            client_response = struct.pack(">H", client_tx_id) + response[2:]
+            
+            # 3. Phục hồi lại TX ID gốc của thiết bị và gửi trả
+            client_response = _struct_pack(">H", client_tx_id) + response[2:]
             try:
                 self.sock.sendto(client_response, client_addr)
             except OSError:
                 pass
                 
-            # Do RTT
+            # 4. Đo lường RTT (Độ trễ thời gian thực)
             dt_us = time.ticks_diff(time.ticks_us(), start_us)
             rtt = round(dt_us / 1000.0, 1)
             self.upstream_rtt = rtt
             self.stats.upstream_rtt = rtt
             
-            # Tinh trung binh trượt (EMA) RTT de lam min gai nhieu
+            # 5. Tính trung bình trượt EMA (Exponential Moving Average) để làm mịn nhiễu mạng
             if self.rtt_sum == 0:
                 self.rtt_sum = rtt
             else:
                 self.rtt_sum = (self.rtt_sum * 0.8) + (rtt * 0.2)
                 self.timeout_errors = 0  # Bất cứ khi nào nhận được phản hồi, reset bộ đếm rớt mạng
                 
-                # Re-optimize if RTT stays > 85ms and at least 2 mins have passed since last optimize
-                if self.rtt_sum > 85 and time.ticks_diff(time.ticks_ms(), self.last_opt_ticks) > 120000:
+                # 6. Reactive Congestion Control: Nếu RTT > 85ms, ép tìm DNS khác nhanh hơn
+                if self.rtt_sum > 85 and _ticks_diff(_ticks_ms(), self.last_opt_ticks) > 120000:
                     print(f"[DNS] High latency detected ({self.rtt_sum} ms), re-optimizing...")
                     self.rtt_cnt = 0
                     self.rtt_sum = 0
@@ -403,23 +448,28 @@ class DNSServer:
 
     def _cleanup_pending_queries(self):
         """Don dep cac truy van cho qua lau (> 2s) de tranh ro ri RAM."""
-        now = time.ticks_ms()
+        now = _ticks_ms()
         last_clean = getattr(self, "_last_clean_ticks", 0)
-        if time.ticks_diff(now, last_clean) < 5000:
+        
+        # Chỉ chạy dọn dẹp mỗi 5 giây 1 lần để tiết kiệm CPU
+        if _ticks_diff(now, last_clean) < 5000:
             return
         self._last_clean_ticks = now
         
         todel = []
+        # Tìm các truy vấn kẹt quá 2 giây
         for tx_id, info in self.pending_queries.items():
             start_ticks = info[2]
-            if time.ticks_diff(now, start_ticks) > 2000:
+            if _ticks_diff(now, start_ticks) > 2000:
                 todel.append(tx_id)
+                
+        # Xóa các truy vấn kẹt và tăng biến đếm rớt mạng
         for tx_id in todel:
             self.pending_queries.pop(tx_id, None)
             self.timeout_errors += 1
             
-        # Cơ chế Fail-Fast thứ 3: Nếu rớt 5 truy vấn liên tiếp (chết lâm sàng), đổi server khẩn cấp!
-        if self.timeout_errors >= 5 and time.ticks_diff(now, self.last_opt_ticks) > 30000:
+        # 7. Cơ chế Fail-Fast: Nếu rớt 5 truy vấn liên tiếp (chết lâm sàng), đổi server khẩn cấp!
+        if self.timeout_errors >= 5 and _ticks_diff(now, self.last_opt_ticks) > 30000:
             print(f"[DNS] Upstream totally dead ({self.timeout_errors} timeouts), Fail-Fast re-optimizing...")
             self.timeout_errors = 0
             try:
