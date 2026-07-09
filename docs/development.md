@@ -102,3 +102,7 @@ curl -X POST http://<ESP32_IP>/api/reboot
 #### B. Aggressive Browser Caching & BLK Badges
 - **Challenge**: The absence of caching HTTP headers caused browsers to cache the old `index.html` template. When the API was upgraded to return category lists (e.g. `['analytics']` or `['ads', 'tracking']`), the cached JS template failed to map the list variables to `catMap`, falling back to rendering default `BLK` badges.
 - **Solution**: Added `Cache-Control: no-cache, no-store, must-revalidate` HTTP headers to all JSON stats endpoints and HTML streaming routines in `server.py`, enforcing clean loads on browser visits.
+
+#### C. NTP Time Sync & Uptime Calculation Overflow
+- **Challenge**: The uptime counter in `stats.py` relied on a fallback `ticks_ms` implementation using `time.time() * 1000` when imported from `time`. Upon connecting to WiFi, the ESP32 synchronized its system clock with NTP, causing a massive time leap of 26 years. This sudden jump caused an `OverflowError` in MicroPython's 31-bit integer space during `ticks_diff()` calculations, rendering the uptime output as a static `0h 0m 0s`.
+- **Solution**: Replaced the library imports in `stats.py` to use `utime` instead of `time`. The native `utime.ticks_ms()` and `utime.ticks_diff()` functions use the ESP32's hardware-level tick counters which tick continuously from boot, completely immune to NTP network time adjustments. A robust PC fallback was maintained to prevent tests from failing locally.

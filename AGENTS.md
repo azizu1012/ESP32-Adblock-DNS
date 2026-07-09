@@ -14,6 +14,7 @@
 - **Watchdog Timer (WDT)**: The firmware utilizes a 30s hardware watchdog (`machine.WDT`). Any blockages in the main thread for over 30s will trigger a hardware reboot.
 - **Garbage Collection (GC)**: The GC heap is limited to ~134KB. `gc.collect()` must be executed frequently, especially in loop iterations and before/after file writes.
 - **Upload blocked.bin**: `blocked.bin` is 1.2MB. **Do NOT upload blocked.bin over serial** as it is extremely slow (~3 minutes). Always upload it over WiFi via a POST request to `/api/upload` (e.g. using `curl -X POST -T blocked.bin http://<IP>/api/upload`), which takes under 20 seconds.
+- **NTP Sync & Uptime Overflow**: Do NOT use `time.time()` as a fallback for calculating system `uptime` or `ticks_ms` on the ESP32. When the WiFi connects, the ESP32's time will jump from epoch 2000 to the current year 2026 via NTP sync. This sudden 26-year leap creates an integer overflow in `ticks_diff()`, crashing the `uptime` property and defaulting it to `0`. Always use native `utime.ticks_ms()` which counts raw CPU hardware clock ticks independent of wall-clock NTP adjustments.
 
 ## Architecture Quirks
 - **Thread Safety**: 
