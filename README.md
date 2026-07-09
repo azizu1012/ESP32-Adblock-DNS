@@ -10,8 +10,12 @@ A high-performance, network-wide ad and tracker blocker running on the ESP32 wit
 - **Suspicious Client Demotion** — Actively monitors client query rates on dynamic whitelisted domains. If queries exceed 30 requests/minute, the domain is instantly demoted and locked back into the blacklist to prevent exploit/malware beacons.
 - **Local Network Discovery Bypass** — Instantly bypasses blocking and computation for `.local` (mDNS) and `.arpa` (Reverse DNS & Service Discovery) requests to ensure smart-home services (AirPlay, Chromecast, printers) run with zero latency.
 - **Dynamic Load-Aware Latency Optimization** — Passive latency measurement rotates upstream DNS to the fastest, lowest-latency responder (Cloudflare, Google, etc.) dynamically.
+- **3-Stage Progressive Web UI** — Prevents memory exhaustion (OOM) and LwIP socket starvation when multiple clients load the dashboard.
+  1. A tiny 1KB Bootstrap loader is served instantly.
+  2. The UI version is validated; if missing/outdated, a Gzip-compressed bundle (~6KB, down from 23KB) is downloaded and cached locally in `localStorage`.
+  3. Subsequent visits load instantly from local cache without stressing the ESP32.
+- **TCP Delayed ACK Mitigation** — HTTP headers and JSON bodies/file chunks are combined into a single byte string before `socket.sendall()`. This eliminates the 200ms Delayed ACK latency penalty on Windows/iOS clients, enabling sub-50ms API responses.
 - **Streaming Web Uploader** — Uploads the 1.2MB `blocked.bin` database over WiFi in under 20 seconds. Memory-safe streaming runs garbage collection (`gc.collect()`) every 8KB to run smoothly on the ESP32's limited 132KB heap.
-
 ## Quick Start
 
 ### 1. Flash MicroPython to ESP32

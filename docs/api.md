@@ -4,9 +4,21 @@ The web server runs on port 80. All POST bodies are `application/x-www-form-urle
 
 The dashboard polls `/api/stats` every 3 seconds to fetch live metrics.
 
-## `GET /` — Dashboard
+## `GET /` — Dashboard (Bootstrap)
 
-Returns the dashboard HTML. Auto-refreshes every 3 seconds with `/api/stats`.
+Returns the 1KB Bootstrap Loader HTML. This loader instantly renders the initial loading screen and fetches the UI bundle.
+
+## `GET /api/ui/version` — UI Version
+
+Returns the current version (size + mtime) of the UI bundle for ETag-style caching.
+
+```json
+{"v": "23330-36"}
+```
+
+## `GET /api/ui` — Full UI Bundle
+
+Returns the Gzip-compressed `app.html.gz` (~6KB). The browser stores this bundle in `localStorage` to avoid downloading it on subsequent visits.
 
 ## `GET /api/stats` — Stats JSON
 

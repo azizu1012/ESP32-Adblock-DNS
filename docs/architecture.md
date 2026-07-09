@@ -66,6 +66,19 @@ GCT is an automated self-healing layer designed to bypass false positives in ups
 
 ---
 
+## Web Server & UI Architecture
+
+To serve a rich UI without exhausting the ESP32's limited RAM or LwIP socket pool, the system employs a highly optimized **3-Stage Progressive Loading** architecture combined with network-level tuning:
+
+- **3-Stage Progressive Loading**:
+  1. **Bootstrap**: When a client accesses `/`, the server immediately responds with a tiny 1KB `index.html` (the Bootstrap Loader) and closes the socket. This ensures the user instantly sees a "Loading" indicator.
+  2. **Version Check & Bundle Download**: The Bootstrap script fetches `/api/ui/version` (~30 bytes). It compares this against `localStorage`. If the UI bundle is outdated or missing, it downloads the full bundle from `/api/ui`. The UI is then permanently cached in the browser.
+  3. **Polling**: The UI fetches live data from `/api/stats` periodically (~400 bytes).
+  *Result*: Eliminates the need to stream the full 23KB HTML file on every visit, preventing `MemoryError` and PCB starvation when multiple devices load the page.
+- **TCP Delayed ACK Mitigation**: MicroPython's `socket.sendall()` separates packets. If HTTP headers and the body chunk are sent in separate `sendall()` calls, Windows and iOS network stacks hold the ACK for the header packet for **~200ms** (TCP Delayed ACK). The web server merges the HTTP header and the first chunk of the body (or JSON string) into a single byte payload before calling `sendall()`, reducing API latency from ~250ms down to **< 50ms**.
+- **Gzip Pre-Compression**: The ESP32 does not have the CPU/RAM to gzip files on the fly. The full UI bundle (`app.html`) is pre-compressed into `app.html.gz` (~6KB) during serial upload. The web server reads the `.gz` file and serves it with `Content-Encoding: gzip` directly, offloading decompression to the client browser and saving 75% flash read time.
+
+---
 ## Memory & Streaming Optimizations
 
 -   **Garbage Collection (GC)**: MicroPython's heap is limited to ~132KB. The web server (`server.py`) and DNS proxy (`dns.py`) frequently call `gc.collect()` to free discarded objects.
