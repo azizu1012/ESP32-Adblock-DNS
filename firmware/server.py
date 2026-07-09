@@ -78,6 +78,16 @@ class WebServer:
             path = header_part.split(" ")[1] if " " in header_part else "/"
             method = header_part.split(" ")[0] if " " in header_part else "GET"
 
+            # Parse If-None-Match header de ho tro HTTP caching (304 Not Modified)
+            if_none_match = None
+            lines = header_part.split("\r\n")
+            for line in lines[1:]:
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    if k.strip().lower() == "if-none-match":
+                        if_none_match = v.strip()
+                        break
+
             if path == "/api/upload":
                 conn.settimeout(120.0)
                 self._handle_upload(conn, buf)
@@ -91,9 +101,9 @@ class WebServer:
             elif path.startswith("/api/"):
                 self._send_json(conn, {"error": "not found"})
             elif path == "/setup":
-                self._stream_file(conn, "web/setup.html")
+                self._stream_file(conn, "web/setup.html", if_none_match)
             else:
-                self._stream_file(conn, "web/index.html")
+                self._stream_file(conn, "web/index.html", if_none_match)
         except Exception as e:
             print("Handle error:", e)
 
@@ -300,28 +310,44 @@ class WebServer:
         conn.sendall(body.encode())
 
     @staticmethod
-    def _stream_file(conn, path):
-        """Stream file HTML tu flash toi socket bang buffer 4KB pre-allocated.
-
-        Khong bao gio allocate toan bo file vao RAM.
-        Peak RAM usage: chi 4KB buffer + header nho.
+    def _stream_file(conn, path, if_none_match=None):
+        """Stream file HTML tu flash ho tro HTTP caching (ETag & 304 Not Modified).
+        
+        Neu file chua thay doi, client tu lay tu cache ma ko can server doc tu flash hay truyen tai lai.
         """
         import gc
+        import os
         gc.collect()
         try:
-            size = os.stat(path)[6]
+            stat = os.stat(path)
+            size = stat[6]
+            mtime = stat[8] if len(stat) > 8 else 0
         except OSError:
-            body = b"404 Not Found"
             conn.sendall(
                 b"HTTP/1.1 404 Not Found\r\nContent-Type:text/plain\r\n"
                 b"Connection:close\r\nContent-Length:13\r\n\r\n404 Not Found"
             )
             return
 
+        # ETag dua tren kich thuoc va thoi gian sua doi cua file
+        etag = f'"{size}-{mtime}"'
+
+        # Neu ma ETag trung khop, tra ve 304 ngay lap tuc de khong ton RAM doc/gui du lieu
+        if if_none_match == etag:
+            resp = (
+                "HTTP/1.1 304 Not Modified\r\n"
+                f"ETag: {etag}\r\n"
+                "Cache-Control: no-cache, must-revalidate\r\n"
+                "Connection: close\r\n\r\n"
+            )
+            conn.sendall(resp.encode())
+            return
+
         header = (
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: text/html; charset=utf-8\r\n"
-            "Cache-Control: no-cache, no-store, must-revalidate\r\n"
+            "Cache-Control: no-cache, must-revalidate\r\n"
+            f"ETag: {etag}\r\n"
             "Connection: close\r\n"
             f"Content-Length: {size}\r\n"
             "\r\n"
