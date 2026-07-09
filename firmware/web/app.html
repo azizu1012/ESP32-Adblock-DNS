@@ -11,7 +11,7 @@
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;min-height:100vh}
 .gnav{background:rgba(8,12,24,.45);backdrop-filter:blur(20px);border-bottom:1px solid rgba(255,255,255,.05);position:sticky;top:0;z-index:50;padding:12px 24px;display:flex;align-items:center;justify-content:space-between}
-.gc{background:rgba(13,18,30,.4);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:20px;transition:all .3s}
+.gc{background:rgba(13,18,30,.4);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:20px;transition:all .3s;min-width:0;overflow:hidden}
 .gc:hover{transform:translateY(-2px);border-color:rgba(99,102,241,.3)}
 @keyframes fi{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pu{0%,100%{opacity:1}50%{opacity:.5}}
@@ -105,9 +105,9 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
         </div>
         <span id="lR" style="font-size:12px;color:#64748b">--</span>
       </div>
-      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
-        <input type="text" id="querySearch" placeholder="Search domains..." style="flex:1;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none" oninput="filterRecent()">
-        <select id="queryFilter" onchange="filterRecent()" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:6px;padding:6px 8px;font-size:12px;color:#94a3b8;outline:none;cursor:pointer">
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;width:100%">
+        <input type="text" id="querySearch" placeholder="Search domains..." style="flex:1;min-width:0;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:6px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none" oninput="filterRecent()">
+        <select id="queryFilter" onchange="filterRecent()" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:6px;padding:6px 8px;font-size:12px;color:#94a3b8;outline:none;cursor:pointer;flex-shrink:0">
           <option value="all">All</option>
           <option value="blocked">Blocked</option>
           <option value="allowed">Allowed</option>
