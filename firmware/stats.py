@@ -17,29 +17,32 @@ except ImportError:
 
 
 CAT_RULES = (
-    ("telemetry", ["telemetry", "functional.events", "dc.services", "appinsight",
-     "diagnostics", "monitor", "metrics", "events.data", "prod.otel",
-     "in.applicationinsights"]),
-    ("tracking", ["track", "analytics", "pixel", "beacon", "click",
-     "doubleclick", "googlesyndication", "googlead", "admob",
-     "adnxs", "rubicon", "openx", "criteo", "pubmatic",
-     "adsystem", "adservice", "adserver", "advertising"]),
-    ("malware", ["malware", "phish", "ransom", "trojan", "exploit",
-     "c2.", "command.and.control", "shadowserver"]),
-    ("social", ["facebook", "fbcdn", "instagram", "linkedin",
-     "tiktok", "snapchat", "pinterest"]),
+    ("ads", ["doubleclick", "googlead", "admob", "adnxs", "rubicon", "openx",
+             "criteo", "pubmatic", "adsystem", "adservice", "adserver", "advertising"]),
+    ("tracking", ["track", "pixel", "beacon", "click"]),
+    ("telemetry", ["telemetry", "diagnostics", "monitor", "metrics", "appinsight", 
+                   "events.data", "prod.otel", "functional.events", "dc.services", "settings-win"]),
+    ("analytics", ["analytics", "firebaselogging", "firebase-settings", "log-upload"]),
+    ("privacy", ["mask.apple-dns", "mask-h2", "mask.icloud"]),
+    ("malware", ["malware", "phish", "ransom", "trojan", "exploit", "c2.", "shadowserver"]),
+    ("experiment", ["experiment", "exp-tas", "gx-target-experiments", "ab-testing", "tas.msedge", "tas.microsoft"])
 )
 
 FILE = "stats.json"
 
 
 def categorize(domain):
-    """Phân loại domain vào nhóm: telemetry, tracking, malware, social, ads."""
+    """Phân loại domain và trả về danh sách các nhãn: ads, tracking, telemetry, analytics, privacy, malware, experiment."""
+    domain = domain.lower()
+    res = []
     for cat, keywords in CAT_RULES:
         for kw in keywords:
             if kw in domain:
-                return cat
-    return "ads"
+                res.append(cat)
+                break
+    if not res:
+        return ["ads"]
+    return res
 
 
 class Stats:
@@ -61,7 +64,7 @@ class Stats:
         self.top = {}
         self.upstream_ip = "1.1.1.1"
         self.upstream_rtt = 0
-        self.blocked_categories = {"ads": 0, "tracking": 0, "telemetry": 0, "malware": 0, "social": 0}
+        self.blocked_categories = {"ads": 0, "tracking": 0, "telemetry": 0, "analytics": 0, "privacy": 0, "malware": 0, "experiment": 0}
 
     @property
     def _today(self):
@@ -81,9 +84,10 @@ class Stats:
                 else:
                     self.top[domain] = {"c": 1, "d": today}
                 self.dirty = True
-                cat = categorize(domain)
-                if cat in self.blocked_categories:
-                    self.blocked_categories[cat] += 1
+                cats = categorize(domain)
+                for cat in cats:
+                    if cat in self.blocked_categories:
+                        self.blocked_categories[cat] += 1
             self.recent.append((domain, is_blocked, layer, time(), client_ip))
             if len(self.recent) > 200:
                 self.recent = self.recent[-100:]
@@ -140,17 +144,25 @@ class Stats:
                 data = json.load(f)
             if isinstance(data, dict):
                 raw = {k: v for k, v in data.items() if k != "_ts"}
+                stripped = False
                 for domain, val in raw.items():
+                    # Lọc sạch các truy vấn Bonjour/mDNS/reverse DNS lịch sử
+                    if domain.endswith(".arpa") or domain.endswith(".local"):
+                        stripped = True
+                        continue
                     if isinstance(val, dict):
                         self.top[domain] = {"c": val.get("c", 1), "d": val.get("d", 0)}
                     elif isinstance(val, int):
                         self.top[domain] = {"c": val, "d": 0}
+                if stripped:
+                    self.dirty = True
                 self._cleanup()
-            self.blocked_categories = {"ads": 0, "tracking": 0, "telemetry": 0, "malware": 0, "social": 0}
+            self.blocked_categories = {"ads": 0, "tracking": 0, "telemetry": 0, "analytics": 0, "privacy": 0, "malware": 0, "experiment": 0}
             for domain, val in self.top.items():
-                cat = categorize(domain)
-                if cat in self.blocked_categories:
-                    self.blocked_categories[cat] += val.get("c", 0)
+                cats = categorize(domain)
+                for cat in cats:
+                    if cat in self.blocked_categories:
+                        self.blocked_categories[cat] += val.get("c", 0)
         except:
             pass
 
@@ -251,7 +263,7 @@ class Stats:
                 "alloc_ram": self.alloc_ram(),
                 "total_ram": self.total_ram(),
                 "last_blocked": self.last_blocked,
-                "recent": [(d, b, categorize(d) if b else "", int(now - t), layer, ip) for d, b, layer, t, ip in self.recent[-50:]],
+                "recent": [(d, b, categorize(d) if b else [], int(now - t), layer, ip) for d, b, layer, t, ip in self.recent[-50:]],
                 "top": [{"d": d, "c": v["c"], "g": categorize(d)} for d, v in self.top_blocked(10)],
                 "categories": self.blocked_categories,
                 "flash_free": self.flash_free(),

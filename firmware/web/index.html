@@ -145,8 +145,10 @@ var catMap={
   ads:{label:'ADS',bg:'rgba(16,185,129,.15)',text:'#10b981'},
   tracking:{label:'TRK',bg:'rgba(59,130,246,.15)',text:'#3b82f6'},
   telemetry:{label:'TEL',bg:'rgba(139,92,246,.15)',text:'#8b5cf6'},
+  analytics:{label:'ANL',bg:'rgba(236,72,153,.15)',text:'#ec4899'},
+  privacy:{label:'PRV',bg:'rgba(14,165,233,.15)',text:'#0ea5e9'},
   malware:{label:'MAL',bg:'rgba(249,115,22,.15)',text:'#f97316'},
-  social:{label:'SOC',bg:'rgba(236,72,153,.15)',text:'#ec4899'}
+  experiment:{label:'EXP',bg:'rgba(168,85,247,.15)',text:'#a855f7'}
 };
 var rawRecentQueries=[];
 
@@ -184,22 +186,30 @@ function render(d){
   document.getElementById('sI').textContent=d.ip||'--'
   document.getElementById('sT').textContent=(d.cpu_temp&&d.cpu_temp<100)?d.cpu_temp+'\u00b0C':'--'
   
-  // Render Blocked Categories
-  var cats=d.categories||{ads:0,tracking:0,telemetry:0,malware:0,social:0};
-  var catData=[cats.ads,cats.tracking,cats.telemetry,cats.malware,cats.social];
+  // Render Blocked 7 Categories Donut Chart
+  var cats=d.categories||{ads:0,tracking:0,telemetry:0,analytics:0,privacy:0,malware:0,experiment:0};
+  var catData=[cats.ads,cats.tracking,cats.telemetry,cats.analytics,cats.privacy,cats.malware,cats.experiment];
   var hasData=catData.some(function(v){return v>0});
-  var chartData=hasData?catData:[1,0,0,0,0]; // Placeholder if no data
+  var chartData=hasData?catData:[1,0,0,0,0,0,0]; // Placeholder if no data
   
-  var labels=['Ads','Tracking','Telemetry','Malware','Social'];
-  var colors=['#10b981','#3b82f6','#8b5cf6','#f97316','#ec4899'];
-  var bgColors=['rgba(16,185,129,.75)','rgba(59,130,246,.75)','rgba(139,92,246,.75)','rgba(249,115,22,.75)','rgba(236,72,153,.75)'];
-  var borderColors=['#10b981','#3b82f6','#8b5cf6','#f97316','#ec4899'];
+  var labels=['Ads','Tracking','Telemetry','Analytics','Privacy','Malware','Experiment'];
+  var colors=['#10b981','#3b82f6','#8b5cf6','#ec4899','#0ea5e9','#f97316','#a855f7'];
+  var bgColors=[
+    'rgba(16,185,129,.75)',
+    'rgba(59,130,246,.75)',
+    'rgba(139,92,246,.75)',
+    'rgba(236,72,153,.75)',
+    'rgba(14,165,233,.75)',
+    'rgba(249,115,22,.75)',
+    'rgba(168,85,247,.75)'
+  ];
+  var borderColors=['#10b981','#3b82f6','#8b5cf6','#ec4899','#0ea5e9','#f97316','#a855f7'];
   
-  // Custom HTML Legend
+  // Custom HTML Legend (Compact 7 categories)
   var legendHtml=labels.map(function(label,idx){
     var key=label.toLowerCase();
     var val=cats[key]||0;
-    return '<div style="display:flex;align-items:center;font-size:12px;width:100%"><span style="width:7px;height:7px;border-radius:50%;background:'+colors[idx]+';display:inline-block;margin-right:6px"></span><span style="color:#94a3b8;flex:1">'+label+'</span><span style="font-weight:600;color:#e2e8f0">'+fmt(val)+'</span></div>';
+    return '<div style="display:flex;align-items:center;font-size:11px;width:100%;line-height:1.2"><span style="width:6px;height:6px;border-radius:50%;background:'+colors[idx]+';display:inline-block;margin-right:5px"></span><span style="color:#94a3b8;flex:1">'+label+'</span><span style="font-weight:600;color:#e2e8f0">'+fmt(val)+'</span></div>';
   }).join('');
   document.getElementById('catLegend').innerHTML=legendHtml;
   
@@ -209,7 +219,7 @@ function render(d){
         type:'doughnut',
         data:{
           labels:labels,
-          datasets:[{data:chartData,backgroundColor:bgColors,borderColor:borderColors,borderWidth:1.5,hoverOffset:6}]
+          datasets:[{data:chartData,backgroundColor:bgColors,borderColor:borderColors,borderWidth:1,hoverOffset:5}]
         },
         options:{
           responsive:true,
@@ -229,17 +239,24 @@ function render(d){
   rawRecentQueries=d.recent||[];
   filterRecent();
   
-  // Render Top Blocked List with 1-click Whitelist
+  // Render Top Blocked List with 1-click Whitelist and multi-tag badges
   var tl=document.getElementById('listT');
   if(!d.top||!d.top.length){tl.innerHTML='<div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">No blocks yet</div>'}
   else{
     var mx=d.top[0].c;
     tl.innerHTML=d.top.map(function(x,i){
-      var style=catMap[x.g]||{label:'BLK',bg:'rgba(239,68,68,.15)',text:'#ef4444'};
+      var cats=x.g||[];
+      var firstCat=cats[0]||'ads';
+      var style=catMap[firstCat]||{label:'BLK',bg:'rgba(239,68,68,.15)',text:'#ef4444'};
       var barColor=style.text;
-      var catLabel=style.label;
+      
+      var badgeHtml=cats.map(function(cat){
+        var st=catMap[cat]||{label:'BLK',bg:'rgba(239,68,68,.15)',text:'#ef4444'};
+        return '<span style="font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;background:'+st.bg+';color:'+st.text+';letter-spacing:.3px;margin-left:4px">'+st.label+'</span>';
+      }).join('');
+      
       var whitelistHtml='<span onclick="quickWhitelist(\''+x.d+'\', this)" title="Whitelist domain" style="margin-left:6px;cursor:pointer;color:#10b981;font-size:12px;opacity:.7;transition:opacity .2s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.7">&#8853;</span>';
-      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0"><span style="font-size:12px;color:#64748b;min-width:20px">'+(i+1)+'.</span><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><div style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+x.d+'</div><div style="display:flex;align-items:center;gap:4px"><span style="font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;background:'+style.bg+';color:'+style.text+';letter-spacing:.3px">'+catLabel+'</span>'+whitelistHtml+'</div></div><div style="width:100%;height:3px;background:rgba(255,255,255,.06);border-radius:2px;margin-top:3px"><div style="height:100%;border-radius:2px;background:'+barColor+';width:'+Math.round(x.c/mx*100)+'%"></div></div></div><span style="font-size:12px;color:#94a3b8;font-weight:600;min-width:32px;text-align:right">'+x.c+'</span></div>';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0"><span style="font-size:12px;color:#64748b;min-width:20px">'+(i+1)+'.</span><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><div style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+x.d+'</div><div style="display:flex;align-items:center;gap:2px">'+badgeHtml+whitelistHtml+'</div></div><div style="width:100%;height:3px;background:rgba(255,255,255,.06);border-radius:2px;margin-top:3px"><div style="height:100%;border-radius:2px;background:'+barColor+';width:'+Math.round(x.c/mx*100)+'%"></div></div></div><span style="font-size:12px;color:#94a3b8;font-weight:600;min-width:32px;text-align:right">'+x.c+'</span></div>';
     }).join('');
   }
 }
@@ -269,8 +286,11 @@ function renderRecentList(list){
       if(!r[1]){
         tagHtml='<span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;background:rgba(34,197,94,.15);color:#22c55e">OK</span>';
       }else{
-        var style=catMap[r[2]]||{label:'BLK',bg:'rgba(239,68,68,.15)',text:'#ef4444'};
-        tagHtml='<span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;background:'+style.bg+';color:'+style.text+'">'+style.label+'</span>';
+        var cats = r[2] || [];
+        tagHtml = cats.map(function(cat) {
+          var style=catMap[cat]||{label:'BLK',bg:'rgba(239,68,68,.15)',text:'#ef4444'};
+          return '<span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;background:'+style.bg+';color:'+style.text+';margin-right:4px">'+style.label+'</span>';
+        }).join('');
         whitelistHtml='<span onclick="quickWhitelist(\''+r[0]+'\', this)" title="Whitelist domain" style="margin-left:6px;cursor:pointer;color:#10b981;font-size:13px;opacity:.7;transition:opacity .2s;vertical-align:middle" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.7">&#8853;</span>';
       }
       return '<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px">'+tagHtml+(r[5]?'<span style="color:#64748b;font-size:11px;font-family:monospace">['+r[5]+']</span>':'')+'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r[0]+whitelistHtml+'</span><span style="color:#64748b;font-size:11px">'+t+'</span></div>';
