@@ -126,6 +126,10 @@ if cfg.get("ssid") and wifi.connect(cfg):
             ddns.tick(cfg)
             wdt.feed()
             gc.collect()
+        except MemoryError:
+            print("Main thread MemoryError! Recovering...")
+            gc.collect()
+            time.sleep(0.5)
         except Exception as e:
             import sys
             sys.print_exception(e)

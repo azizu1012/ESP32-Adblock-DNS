@@ -108,11 +108,11 @@ class WebServer:
             elif method == "POST":
                 self._handle_post(conn, buf, path, wifi_manager)
             elif path == "/api/stats":
-                self._send_json(conn, self._build_stats(wifi_manager))
+                self._serve_api_cached(conn, path, lambda: self._build_stats(wifi_manager))
             elif path == "/api/stats/recent":
-                self._send_json(conn, self.stats.to_recent_list() if self.stats else [])
+                self._serve_api_cached(conn, path, lambda: self.stats.to_recent_list() if self.stats else [])
             elif path == "/api/stats/top":
-                self._send_json(conn, self.stats.to_top_list() if self.stats else [])
+                self._serve_api_cached(conn, path, lambda: self.stats.to_top_list() if self.stats else [])
             elif path == "/api/ui/version":
                 # Stage 1: Tra ve version cua UI bundle (~30 bytes) de client kiem tra cache
                 try:
@@ -335,6 +335,50 @@ class WebServer:
         except:
             return None
 
+    def _serve_api_cached(self, conn, endpoint, builder_func, ttl=1.5):
+        """Global Shared State Cache: Xuat ra toan bo client cung 1 luc tu chung 1 bo dem."""
+        import gc
+        import time
+        now = time.time()
+        
+        if not hasattr(self, "_api_cache"):
+            self._api_cache = {}
+            
+        # 1. Kiem tra cache de dung chung bo nho byte raw
+        if endpoint in self._api_cache:
+            cached_time, cached_bytes = self._api_cache[endpoint]
+            if now - cached_time < ttl:
+                try:
+                    conn.settimeout(1.0)
+                    conn.sendall(cached_bytes)
+                except:
+                    pass
+                return
+
+        # 2. Neu het han, tao moi va dump json
+        gc.collect()
+        data = builder_func()
+        body = json.dumps(data)
+        header = (
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: application/json\r\n"
+            "Cache-Control: no-cache, no-store, must-revalidate\r\n"
+            "Connection: close\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            "\r\n"
+        )
+        response_bytes = header.encode() + body.encode()
+        
+        # 3. Luu vao cache toan cuc
+        self._api_cache[endpoint] = (now, response_bytes)
+        
+        try:
+            conn.settimeout(1.0)
+            conn.sendall(response_bytes)
+        except:
+            pass
+
     @staticmethod
     def _send_json(conn, data):
         """Gui HTTP response dang JSON - toi uu phan tach Header/Body de tranh ton RAM."""
@@ -429,10 +473,10 @@ class WebServer:
         )
         # Combine header and the first chunk to avoid TCP Delayed ACK
         with open(send_path, "rb") as f:
-            first_chunk = f.read(4096)
+            first_chunk = f.read(1024)
             conn.sendall(header.encode() + first_chunk)
             while True:
-                chunk = f.read(4096)
+                chunk = f.read(1024)
                 if not chunk:
                     break
                 conn.sendall(chunk)
