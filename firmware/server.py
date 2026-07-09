@@ -40,6 +40,7 @@ class WebServer:
 
     def serve(self, wifi_manager=None):
         """Vong lap chinh: chap nhan ket noi, xu ly request, dong."""
+        import gc
         self.start()
         while True:
             try:
@@ -47,7 +48,8 @@ class WebServer:
             except OSError:
                 continue
             try:
-                conn.settimeout(2.0)
+                # Giam timeout xu ly xuong 1.0s de nhanh chong giai phong socket truoc spam F5
+                conn.settimeout(1.0)
                 self._handle(conn, wifi_manager)
             except Exception as e:
                 print("HTTP serve error:", e)
@@ -56,6 +58,8 @@ class WebServer:
                     conn.close()
                 except:
                     pass
+                # Don dep RAM quyet liet ngay sau khi dong socket de ngan phan manh Heap
+                gc.collect()
 
     def _handle(self, conn, wifi_manager):
         """Parse HTTP request header va dieu huong den handler phu hop."""
@@ -279,18 +283,21 @@ class WebServer:
 
     @staticmethod
     def _send_json(conn, data):
-        """Gui HTTP response dang JSON."""
+        """Gui HTTP response dang JSON - toi uu phan tach Header/Body de tranh ton RAM."""
+        import gc
+        gc.collect() # Giai phong dung luong truoc khi khoi tao chuoi JSON lon
         body = json.dumps(data)
-        resp = (
+        header = (
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: application/json\r\n"
             "Cache-Control: no-cache, no-store, must-revalidate\r\n"
             "Connection: close\r\n"
             "Access-Control-Allow-Origin: *\r\n"
             f"Content-Length: {len(body)}\r\n"
-            "\r\n" + body
+            "\r\n"
         )
-        conn.sendall(resp.encode())
+        conn.sendall(header.encode())
+        conn.sendall(body.encode())
 
     @staticmethod
     def _stream_file(conn, path):
@@ -332,14 +339,15 @@ class WebServer:
 
     @staticmethod
     def _redirect(conn, path="/"):
-        """Gui HTTP redirect 302."""
+        """Gui HTTP redirect 302 - toi uu phan tach Header/Body."""
         body = f"<html><body><script>window.location='{path}'</script></body></html>"
-        resp = (
+        header = (
             "HTTP/1.1 302 Found\r\n"
             f"Location: {path}\r\n"
             "Content-Type: text/html\r\n"
             "Connection: close\r\n"
             f"Content-Length: {len(body)}\r\n"
-            "\r\n" + body
+            "\r\n"
         )
-        conn.sendall(resp.encode())
+        conn.sendall(header.encode())
+        conn.sendall(body.encode())
