@@ -49,6 +49,7 @@ class DNSServer:
         self.last_query_ticks = time.ticks_ms()
         self.rtt_sum = 0
         self.rtt_cnt = 0
+        self.timeout_errors = 0
         self.wifi = None
         self.stats.upstream_ip = "1.1.1.1"
         self.stats.upstream_rtt = 0
@@ -564,6 +565,7 @@ class DNSServer:
                 self.rtt_sum = rtt
             else:
                 self.rtt_sum = (self.rtt_sum * 0.8) + (rtt * 0.2)
+                self.timeout_errors = 0  # Bất cứ khi nào nhận được phản hồi, reset bộ đếm rớt mạng
                 
                 # Re-optimize if RTT stays > 85ms and at least 2 mins have passed since last optimize
                 if self.rtt_sum > 85 and time.ticks_diff(time.ticks_ms(), self.last_opt_ticks) > 120000:
@@ -590,3 +592,13 @@ class DNSServer:
                 todel.append(tx_id)
         for tx_id in todel:
             self.pending_queries.pop(tx_id, None)
+            self.timeout_errors += 1
+            
+        # Cơ chế Fail-Fast thứ 3: Nếu rớt 5 truy vấn liên tiếp (chết lâm sàng), đổi server khẩn cấp!
+        if self.timeout_errors >= 5 and time.ticks_diff(now, self.last_opt_ticks) > 30000:
+            print(f"[DNS] Upstream totally dead ({self.timeout_errors} timeouts), Fail-Fast re-optimizing...")
+            self.timeout_errors = 0
+            try:
+                self.optimize_upstream()
+            except:
+                pass
