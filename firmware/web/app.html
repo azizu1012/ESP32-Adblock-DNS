@@ -315,7 +315,7 @@ function renderTop(topList) {
       }).join('');
       
       var whitelistHtml='<span onclick="quickWhitelist(\''+x.d+'\', this)" title="Whitelist domain" style="margin-left:6px;cursor:pointer;color:#10b981;font-size:12px;opacity:.7;transition:opacity .2s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.7">&#8853;</span>';
-      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0"><span style="font-size:12px;color:#64748b;min-width:20px">'+(i+1)+'.</span><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><div style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+x.d+'</div><div style="display:flex;align-items:center;gap:2px">'+badgeHtml+whitelistHtml+'</div></div><div style="width:100%;height:3px;background:rgba(255,255,255,.06);border-radius:2px;margin-top:3px"><div style="height:100%;border-radius:2px;background:'+barColor+';width:'+Math.round(x.c/mx*100)+'%"></div></div></div><span style="font-size:12px;color:#94a3b8;font-weight:600;min-width:32px;text-align:right">'+x.c+'</span></div>';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;width:100%"><span style="font-size:12px;color:#64748b;min-width:20px">'+(i+1)+'.</span><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><div style="flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+x.d+'</div><div style="display:flex;align-items:center;gap:2px;flex-shrink:0">'+badgeHtml+whitelistHtml+'</div></div><div style="width:100%;height:3px;background:rgba(255,255,255,.06);border-radius:2px;margin-top:3px"><div style="height:100%;border-radius:2px;background:'+barColor+';width:'+Math.round(x.c/mx*100)+'%"></div></div></div><span style="font-size:12px;color:#94a3b8;font-weight:600;min-width:32px;text-align:right;flex-shrink:0">'+x.c+'</span></div>';
     }).join('');
   }
 }
@@ -343,16 +343,17 @@ function renderRecentList(list){
       var tagHtml='';
       var whitelistHtml='';
       if(!r[1]){
-        tagHtml='<span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;background:rgba(34,197,94,.15);color:#22c55e">OK</span>';
+        tagHtml='<span style="flex-shrink:0;font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;background:rgba(34,197,94,.15);color:#22c55e">OK</span>';
       }else{
         var cats = r[2] || [];
         tagHtml = cats.map(function(cat) {
           var style=catMap[cat]||{label:'BLK',bg:'rgba(239,68,68,.15)',text:'#ef4444'};
-          return '<span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;background:'+style.bg+';color:'+style.text+';margin-right:4px">'+style.label+'</span>';
+          return '<span style="flex-shrink:0;font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;background:'+style.bg+';color:'+style.text+';margin-right:4px">'+style.label+'</span>';
         }).join('');
-        whitelistHtml='<span onclick="quickWhitelist(\''+r[0]+'\', this)" title="Whitelist domain" style="margin-left:6px;cursor:pointer;color:#10b981;font-size:13px;opacity:.7;transition:opacity .2s;vertical-align:middle" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.7">&#8853;</span>';
+        whitelistHtml='<span onclick="quickWhitelist(\''+r[0]+'\', this)" title="Whitelist domain" style="margin-left:6px;cursor:pointer;color:#10b981;font-size:13px;opacity:.7;transition:opacity .2s;vertical-align:middle;flex-shrink:0" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.7">&#8853;</span>';
       }
-      return '<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px">'+tagHtml+(r[5]?'<span style="color:#64748b;font-size:11px;font-family:monospace">['+r[5]+']</span>':'')+'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r[0]+whitelistHtml+'</span><span style="color:#64748b;font-size:11px">'+t+'</span></div>';
+      return '<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px;width:100%"><div style="display:flex;align-items:center;flex-shrink:0">'+tagHtml+'</div>'+(r[5]?'<span style="color:#64748b;font-size:11px;font-family:monospace;flex-shrink:0">['+r[5]+']</span>':'')+'<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r[0]+whitelistHtml+'</span><span style="color:#64748b;font-size:11px;flex-shrink:0;min-width:24px;text-align:right">'+t+'</span></div>';
+
     }).join('');
   }
 }
