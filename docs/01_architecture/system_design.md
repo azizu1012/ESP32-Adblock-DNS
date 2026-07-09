@@ -203,20 +203,3 @@ To squeeze maximum performance out of the ESP32 without changing logic:
 1. **Tick Lookups**: Functions like `time.ticks_ms` or `struct.unpack` require two dictionary lookups (first finding `time` in globals, then `ticks_ms` in `time`'s attributes).
 2. **Local Caching**: The firmware binds these frequently used global functions to module-level local variables (`_ticks_ms = time.ticks_ms`). 
 3. **Result**: This Global-to-Local binding yields a measurable ~15-20% speedup inside the `poll()` execution path, allowing the DNS server to handle higher concurrent QPS (Queries Per Second) without saturating the CPU.
-
----
-
-## 9. Performance & Benchmarks (Stress Test)
-
-The system is continuously tested against intense DNS flooding to monitor Memory Fragmentation (OOM resilience) and QPS drop-off. 
-A recent load-test simulating **500 consecutive DNS queries** containing a mix of standard domains, heuristic triggers, local bypassing, and bloom-filter hash hits yielded the following:
-
-- **Success Rate**: 99.8% (499/500 resolves)
-- **Timeouts**: 0.2% (1 dropped packet)
-- **Resolution Speed**: ~40-50 QPS raw (measured at ~11.5 req/sec when artificially throttled by simultaneous HTTP RAM-polling).
-- **RAM Stability**: 
-  - Starting Free RAM: `63 KB`
-  - Minimum Safe Threshold: `48 KB`
-  - Final Free RAM (Post-test): `49 KB`
-
-**Conclusion**: The system exhibits excellent RAM stability. The 14 KB delta is normal MicroPython memory fragmentation from short-lived tuple/dict allocation in the request loop. Because the garbage collector (`gc.collect()`) is aggressively interleaved in the non-blocking `poll()` and `/api/stats` handlers, the ESP32 maintains a stable 48KB+ buffer, guaranteeing immunity against Out-Of-Memory (OOM) crashes during heavy DNS floods.
