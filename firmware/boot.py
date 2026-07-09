@@ -64,14 +64,14 @@ stats = Stats()
 
 if cfg.get("ssid") and wifi.connect(cfg):
 
-    web = WebServer(stats)
-    _thread.start_new_thread(web.serve, (wifi,))
-
     dns = DNSServer(stats)
     try:
         dns.optimize_upstream(wifi)
     except Exception as e:
         print("Initial optimize error:", e)
+
+    web = WebServer(stats, dns)
+    _thread.start_new_thread(web.serve, (wifi,))
     dns.start()
     print("System ready!")
 

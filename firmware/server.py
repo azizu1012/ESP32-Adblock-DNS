@@ -21,9 +21,10 @@ from stats import Stats
 
 
 class WebServer:
-    def __init__(self, stats, ip="0.0.0.0", port=80):
-        """Khoi tao web server voi stats va dia chi IP."""
+    def __init__(self, stats, dns=None, ip="0.0.0.0", port=80):
+        """Khoi tao web server voi stats, dns va dia chi IP."""
         self.stats = stats
+        self.dns = dns
         self.ip = ip
         self.port = port
         self.sock = None
@@ -80,6 +81,9 @@ class WebServer:
                 self._handle_post(conn, buf, path, wifi_manager)
             elif path == "/api/stats":
                 self._send_json(conn, self._build_stats(wifi_manager))
+            elif path == "/api/safelist":
+                res = list(self.dns.custom_safelist) if (self.dns and hasattr(self.dns, "custom_safelist")) else []
+                self._send_json(conn, res)
             elif path.startswith("/api/"):
                 self._send_json(conn, {"error": "not found"})
             elif path == "/setup":
@@ -136,6 +140,28 @@ class WebServer:
             import machine
             time.sleep(1)
             machine.reset()
+        elif path == "/api/safelist/add":
+            if not self.dns:
+                self._send_json(conn, {"ok": False, "error": "dns server not initialized"})
+                return
+            body = self._parse_body(request)
+            domain = body.get("domain", "")
+            if domain:
+                ok = self.dns.add_custom_safelist(domain)
+                self._send_json(conn, {"ok": ok})
+            else:
+                self._send_json(conn, {"ok": False, "error": "domain is required"})
+        elif path == "/api/safelist/remove":
+            if not self.dns:
+                self._send_json(conn, {"ok": False, "error": "dns server not initialized"})
+                return
+            body = self._parse_body(request)
+            domain = body.get("domain", "")
+            if domain:
+                ok = self.dns.remove_custom_safelist(domain)
+                self._send_json(conn, {"ok": ok})
+            else:
+                self._send_json(conn, {"ok": False, "error": "domain is required"})
         else:
             self._send_json(conn, {"ok": False, "error": "unknown endpoint"})
 
@@ -214,6 +240,29 @@ class WebServer:
                 d["ip"] = wifi_manager.ifconfig()[0]
             except:
                 pass
+
+        # Calculate active clients in last 10 minutes (600s)
+        active_clients = 1
+        try:
+            now = time.time()
+            ips = set()
+            for r in self.stats.recent:
+                if len(r) > 4 and now - r[3] < 600:
+                    ips.add(r[4])
+            if ips:
+                active_clients = len(ips)
+        except:
+            pass
+        d["active_clients"] = active_clients
+
+        # Expose dynamic safelist (GCT)
+        d["safelist_dyn"] = []
+        if self.dns:
+            try:
+                d["safelist_dyn"] = self.dns.get_safelist_dyn()
+            except:
+                pass
+
         return d
 
     @staticmethod

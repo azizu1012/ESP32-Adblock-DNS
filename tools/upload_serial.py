@@ -73,52 +73,58 @@ def main():
     time.sleep(0.1)
     ser.reset_input_buffer()
 
-    # Upload các file Python
-    for fname in FILES:
-        path = os.path.join(FIRMWARE, fname)
-        with open(path, encoding="utf-8") as f:
-            content = f.read()
-        # Strip UTF-8 BOM if PowerShell injected it
-        if content.startswith("\ufeff"):
-            content = content[1:]
-        
-        # Ghi file dùng repr()
-        safe = repr(content)
-        cmd = f"open('{fname}','w').write({safe})"
-        print(f"  {fname} ({len(content)} bytes)...", end="", flush=True)
-        t0 = time.time()
-        res = raw_cmd(ser, cmd)
-        dt = time.time() - t0
-        
-        if b"OK" in res:
-            print(f" {dt:.1f}s")
-        else:
-            print(f" FAIL ({dt:.1f}s): {res.decode(errors='replace')[-100:]}")
-        
-        # GC
-        ser.write(b"gc.collect()\r")
-        ser.write(b"\x04")
-        time.sleep(0.1)
-        ser.reset_input_buffer()
-
-    # Create web/ directory on ESP32 if not exists
+    # Upload các file Python và Web
+    # Gộp chung vào danh sách để tải lên đồng bộ theo chunk
+    all_files = [(fname, fname, "wb") for fname in FILES] + [("web/" + fname, "web/" + fname, "wb") for fname in WEB_FILES]
+    
+    # Tạo thư mục web trên ESP32 nếu chưa có
     raw_cmd(ser, "import os\ntry:\n    os.mkdir('web')\nexcept:\n    pass")
-
-    # Upload web/index.html and web/setup.html as binary
-    for fname in WEB_FILES:
-        path = os.path.join(WEB_DIR, fname)
-        with open(path, "rb") as f:
+    
+    for display_name, rel_path, mode in all_files:
+        # Đường dẫn tuyệt đối trên PC
+        if rel_path.startswith("web/"):
+            pc_path = os.path.join(WEB_DIR, rel_path.split("/")[-1])
+        else:
+            pc_path = os.path.join(FIRMWARE, rel_path)
+            
+        with open(pc_path, "rb") as f:
             content = f.read()
-        safe = repr(content)
-        cmd = f"open('web/{fname}','wb').write({safe})"
-        print(f"  web/{fname} ({len(content)} bytes)...", end="", flush=True)
+            
+        # Strip UTF-8 BOM cho các file Python đọc dạng binary (ef bb bf)
+        if not rel_path.startswith("web/") and content.startswith(b"\xef\xbb\xbf"):
+            content = content[3:]
+            
+        print(f"  {display_name} ({len(content)} bytes)...", end="", flush=True)
         t0 = time.time()
-        res = raw_cmd(ser, cmd, timeout=20)
+        
+        # Mở file trên ESP32
+        res_open = raw_cmd(ser, f"f = open('{rel_path}', '{mode}')\n")
+        if b"OK" not in res_open:
+            print(f" FAIL (open): {res_open.decode(errors='replace')}")
+            continue
+            
+        # Ghi theo từng chunk 512 bytes để tránh tràn buffer UART của ESP32
+        chunk_size = 512
+        failed = False
+        for i in range(0, len(content), chunk_size):
+            chunk = content[i:i+chunk_size]
+            safe_chunk = repr(chunk)
+            res_write = raw_cmd(ser, f"f.write({safe_chunk})\n", timeout=10)
+            if b"OK" not in res_write:
+                print(f" FAIL (write chunk {i}): {res_write.decode(errors='replace')}")
+                failed = True
+                break
+                
+        # Đóng file
+        res_close = raw_cmd(ser, "f.close()\n")
+        
         dt = time.time() - t0
-        if b"OK" in res:
+        if not failed and b"OK" in res_close:
             print(f" {dt:.1f}s")
         else:
-            print(f" FAIL ({dt:.1f}s): {res.decode(errors='replace')[-100:]}")
+            print(f" FAIL (close): {res_close.decode(errors='replace')}")
+            
+        # Dọn rác bộ nhớ
         ser.write(b"gc.collect()\r")
         ser.write(b"\x04")
         time.sleep(0.1)
@@ -127,7 +133,6 @@ def main():
     print("\nResetting ESP32 (Ctrl+D)...")
     ser.write(b"\x04")
     time.sleep(0.5)
-    # exit raw repl
     ser.write(b"\x02")
     ser.close()
     print("Done!")

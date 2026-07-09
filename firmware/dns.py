@@ -61,6 +61,15 @@ class DNSServer:
         self.verify_queue = []  # Hàng đợi tên miền chờ kiểm chứng
         self.safelist_dyn = {}  # domain -> (expiry, level, last_query)
         self.query_counts = {}  # domain -> (count, window_start_time)
+        self.custom_safelist = set()
+        try:
+            with open("safelist.txt") as f:
+                for line in f:
+                    d = line.strip().lower()
+                    if d:
+                        self.custom_safelist.add(d)
+        except:
+            pass
 
         try:
             gc.threshold(gc.mem_free() // 4 + gc.mem_alloc())
@@ -233,8 +242,8 @@ class DNSServer:
         if domain.endswith(".local") or domain.endswith(".arpa"):
             return False, None
 
-        # Lớp 1: Safelist tĩnh
-        if domain in self.SAFELIST:
+        # Lớp 1: Safelist tĩnh (hệ thống + custom)
+        if domain in self.SAFELIST or domain in self.custom_safelist:
             return False, None
 
         # Lớp 2: Dynamic Safelist (GCT tự phục hồi)
@@ -268,6 +277,66 @@ class DNSServer:
             return True, "hash"
 
         return False, None
+
+    def add_custom_safelist(self, domain):
+        """Thêm domain vào custom safelist (RAM + Flash). Trả về True nếu thành công."""
+        domain = domain.strip().lower()
+        if not domain:
+            return False
+        with self.lock:
+            if domain in self.custom_safelist:
+                return True
+            self.custom_safelist.add(domain)
+            # Dọn dẹp khỏi hàng thử thách GCT nếu có
+            if domain in self.safelist_dyn:
+                try:
+                    del self.safelist_dyn[domain]
+                except:
+                    pass
+            # Ghi cấu hình xuống file
+            try:
+                with open("safelist.txt", "a") as f:
+                    f.write(domain + "\n")
+            except Exception as e:
+                print("Write safelist.txt error:", e)
+                return False
+        return True
+
+    def remove_custom_safelist(self, domain):
+        """Xóa domain khỏi custom safelist (RAM + Flash). Trả về True nếu thành công."""
+        domain = domain.strip().lower()
+        if not domain:
+            return False
+        with self.lock:
+            if domain not in self.custom_safelist:
+                return True
+            self.custom_safelist.discard(domain)
+            # Rewrite file
+            try:
+                with open("safelist.txt", "w") as f:
+                    for d in self.custom_safelist:
+                        f.write(d + "\n")
+            except Exception as e:
+                print("Rewrite safelist.txt error:", e)
+                return False
+        return True
+
+    def get_safelist_dyn(self):
+        """Trả về danh sách các domain đang ở trạng thái tạm tha GCT."""
+        res = []
+        now = time.time()
+        with self.lock:
+            for domain, val in self.safelist_dyn.items():
+                expiry, level, last_q = val
+                ttl = int(expiry - now)
+                if ttl > 0:
+                    res.append({
+                        "d": domain,
+                        "t": ttl,
+                        "l": level
+                    })
+        res.sort(key=lambda x: x["t"], reverse=True)
+        return res
 
     @staticmethod
     def _fnv1a_64(data):
