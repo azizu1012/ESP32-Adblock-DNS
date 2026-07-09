@@ -155,26 +155,13 @@ class DNSServer:
 
         now = time.ticks_ms()
         
-        # 1. Kiểm tra định kỳ (6 giờ)
-        if time.ticks_diff(now, self.last_opt_ticks) > 21600000:
+        # 1. Kiểm tra định kỳ (2 giờ)
+        if time.ticks_diff(now, self.last_opt_ticks) > 7200000:
             self.last_opt_ticks = now
             try:
                 self.optimize_upstream(wifi_manager)
             except Exception as e:
                 print("Periodic optimize error:", e)
-            return
-
-        # 2. Phát hiện trạng thái rảnh (Idle): Không có truy vấn trong 15 phút
-        # và đã hơn 1 giờ chưa tối ưu hóa lại.
-        idle_time = time.ticks_diff(now, self.last_query_ticks)
-        time_since_opt = time.ticks_diff(now, self.last_opt_ticks)
-        if idle_time > 900000 and time_since_opt > 3600000:
-            self.last_opt_ticks = now
-            try:
-                print("[DNS] Idle detected, running silent optimize...")
-                self.optimize_upstream(wifi_manager)
-            except:
-                pass
 
     def start(self):
         """Mở socket DNS (UDP) và socket upstream dưới dạng non-blocking."""
@@ -578,7 +565,8 @@ class DNSServer:
             else:
                 self.rtt_sum = (self.rtt_sum * 0.8) + (rtt * 0.2)
                 
-                if self.rtt_sum > 150 and time.ticks_diff(time.ticks_ms(), self.last_opt_ticks) > 300000:
+                # Re-optimize if RTT stays > 85ms and at least 2 mins have passed since last optimize
+                if self.rtt_sum > 85 and time.ticks_diff(time.ticks_ms(), self.last_opt_ticks) > 120000:
                     print(f"[DNS] High latency detected ({self.rtt_sum} ms), re-optimizing...")
                     self.rtt_cnt = 0
                     self.rtt_sum = 0
