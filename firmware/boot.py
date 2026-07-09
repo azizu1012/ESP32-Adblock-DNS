@@ -81,63 +81,68 @@ def handle_boot_button():
         led.value(0)
 
 
-WiFiManager.set_hostname()
-wifi = WiFiManager()
-cfg = ConfigManager.load()
-stats = Stats()
+def main():
+    WiFiManager.set_hostname()
+    wifi = WiFiManager()
+    cfg = ConfigManager.load()
+    stats = Stats()
 
-if cfg.get("ssid") and wifi.connect(cfg):
+    if cfg.get("ssid") and wifi.connect(cfg):
 
-    dns = DNSServer(stats)
-    try:
-        dns.optimize_upstream(wifi)
-    except Exception as e:
-        print("Initial optimize error:", e)
-
-    web = WebServer(stats, dns)
-    _thread.start_new_thread(web.serve, (wifi,))
-    dns.start()
-    print("System ready!")
-    led.value(1) # LED luôn sáng mặc định
-    
-    # Khởi chạy luồng nhịp tim ngầm độc lập
-    _thread.start_new_thread(led_heartbeat_thread, ())
-
-    wdt = WDT(timeout=30_000)
-    ddns = DDNSUpdater()
-    
-    while True:
+        dns = DNSServer(stats)
         try:
-            handle_boot_button()
-            try:
-                if dns.poll():
-                    blink_off(100) # Tắt hẳn 100ms khi có truy vấn bị chặn
-            except Exception as inner:
-                print("DNS poll error:", inner)
-            if not wifi.is_connected():
-                print("WiFi lost, reconnecting...")
-                if wifi.connect(cfg):
-                    try:
-                        dns.optimize_upstream(wifi)
-                    except:
-                        pass
-            dns.tick(wifi)
-            stats.tick()
-            ddns.tick(cfg)
-            wdt.feed()
-            gc.collect()
-        except MemoryError:
-            print("Main thread MemoryError! Recovering...")
-            gc.collect()
-            time.sleep(0.5)
+            dns.optimize_upstream(wifi)
         except Exception as e:
-            import sys
-            sys.print_exception(e)
-            stats.save()
-            time.sleep(3)
-            machine.reset()
-else:
-    led.value(1)
-    ap_ip = wifi.start_ap()
-    web = WebServer(stats, ip=ap_ip)
-    web.serve(wifi)
+            print("Initial optimize error:", e)
+
+        web = WebServer(stats, dns)
+        _thread.start_new_thread(web.serve, (wifi,))
+        dns.start()
+        print("System ready!")
+        led.value(1) # LED luôn sáng mặc định
+        
+        # Khởi chạy luồng nhịp tim ngầm độc lập
+        _thread.start_new_thread(led_heartbeat_thread, ())
+
+        wdt = WDT(timeout=30_000)
+        ddns = DDNSUpdater()
+        
+        while True:
+            try:
+                handle_boot_button()
+                try:
+                    if dns.poll():
+                        blink_off(100) # Tắt hẳn 100ms khi có truy vấn bị chặn
+                except Exception as inner:
+                    print("DNS poll error:", inner)
+                if not wifi.is_connected():
+                    print("WiFi lost, reconnecting...")
+                    if wifi.connect(cfg):
+                        try:
+                            dns.optimize_upstream(wifi)
+                        except:
+                            pass
+                dns.tick(wifi)
+                stats.tick()
+                ddns.tick(cfg)
+                wdt.feed()
+                gc.collect()
+            except MemoryError:
+                print("Main thread MemoryError! Recovering...")
+                gc.collect()
+                time.sleep(0.5)
+            except Exception as e:
+                import sys
+                sys.print_exception(e)
+                stats.save()
+                time.sleep(3)
+                machine.reset()
+    else:
+        led.value(1)
+        ap_ip = wifi.start_ap()
+        web = WebServer(stats, ip=ap_ip)
+        web.serve(wifi)
+
+
+if __name__ == "__main__":
+    main()
