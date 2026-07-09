@@ -46,6 +46,19 @@ Tests verify:
 - SAFELIST domains are bypassed successfully.
 - Known blacklisted domains are blocked correctly.
 
+## Toolchain Pipeline
+
+The `tools/` directory contains a robust 3-stage automated pipeline to generate the `blocked.bin` database and flash the firmware:
+
+### 1. `generate_blocked_bin.ps1` (Automation Script)
+A PowerShell script that automates the downloading of raw text blocklists (HaGeZi Multi PRO and HostsVN) from their respective repositories via `curl`. It handles temporary directories and automatically passes the downloaded files to the Python processor.
+
+### 2. `process_blocked.py` (Data Crunching & Hashing)
+A Python script that acts as the core compiler. It reads the raw text blocklists, parses various adblock syntax formats, and strictly deduplicates them (e.g. discarding subdomains if the root domain is already blocked). Finally, it hashes the 230K+ unique domains using the FNV-1a 64-bit algorithm and writes them out into a highly optimized 1.2MB Blocked Bloom Filter file (`blocked.bin`).
+
+### 3. `upload_serial.py` (Firmware Uploader & Optimizer)
+A Python script that deploys the codebase to the ESP32 via serial (USB). It safely stops the running DNS script via raw REPL, automatically compresses HTML files (like `app.html`) into `.gz` format to save 75% flash space, and transfers files in safe 512-byte chunks to avoid UART buffer overflows. After the transfer, it automatically resets the ESP32.
+
 ## Regenerating blocked.bin
 
 ```bash
