@@ -171,3 +171,24 @@ When any of the Triad triggers fire, the ESP32 executes the DNS optimization usi
 - **Background Worker**: The `optimize_upstream` function is offloaded to a background RTOS thread. This thread performs blocking socket pings (`_measure_rtt`) across 5-6 servers for ~1.5 seconds.
 - **Uninterrupted Main Loop**: During this 1.5s window, the main thread continues resolving DNS queries using the *old* upstream IP. Because DNS is connectionless (UDP), this works perfectly.
 - **Atomic Swap**: Once the background thread identifies the new optimal server, it atomically overwrites `self.upstream_ip`. The very next query received by the main loop is instantly routed to the new server, while responses from the old server (still in transit) are gracefully accepted and returned to the client. This guarantees a 0ms interruption to the user's internet experience.
+
+---
+
+## 7. Codebase Modularization (Monkey Patching)
+
+To maintain a clean and maintainable codebase without incurring memory penalties on the ESP32, the firmware utilizes a unique **Direct Modularization** pattern via Monkey Patching. 
+
+```python
+# In dns_bloom.py
+def attach(cls):
+    cls._get_bloom_bit = _get_bloom_bit
+    cls.is_blocked_bloom = is_blocked_bloom
+
+# In dns.py
+import dns_bloom
+dns_bloom.attach(DNSServer)
+```
+
+- **Avoids God Files**: Large classes like `DNSServer` and `WebServer` are split into multiple smaller files (`dns_bloom.py`, `dns_gct.py`, `server_api.py`, etc.).
+- **Zero RAM Overhead**: Instead of using deep object-oriented inheritance (which creates large RAM footprints per instance), the `attach()` method binds functions directly to the main class namespace at compile time. 
+- **Preserves `self` Context**: Functions act seamlessly as native methods, preserving full access to `self` state like `self.lock` or `self.stats`.
