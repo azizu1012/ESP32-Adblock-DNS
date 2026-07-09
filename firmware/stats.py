@@ -61,6 +61,7 @@ class Stats:
         self.top = {}
         self.upstream_ip = "1.1.1.1"
         self.upstream_rtt = 0
+        self.blocked_categories = {"ads": 0, "tracking": 0, "telemetry": 0, "malware": 0, "social": 0}
 
     @property
     def _today(self):
@@ -80,6 +81,9 @@ class Stats:
                 else:
                     self.top[domain] = {"c": 1, "d": today}
                 self.dirty = True
+                cat = categorize(domain)
+                if cat in self.blocked_categories:
+                    self.blocked_categories[cat] += 1
             self.recent.append((domain, is_blocked, layer, time(), client_ip))
             if len(self.recent) > 200:
                 self.recent = self.recent[-100:]
@@ -142,6 +146,11 @@ class Stats:
                     elif isinstance(val, int):
                         self.top[domain] = {"c": val, "d": 0}
                 self._cleanup()
+            self.blocked_categories = {"ads": 0, "tracking": 0, "telemetry": 0, "malware": 0, "social": 0}
+            for domain, val in self.top.items():
+                cat = categorize(domain)
+                if cat in self.blocked_categories:
+                    self.blocked_categories[cat] += val.get("c", 0)
         except:
             pass
 
@@ -244,6 +253,7 @@ class Stats:
                 "last_blocked": self.last_blocked,
                 "recent": [(d, b, categorize(d) if b else "", int(now - t), layer, ip) for d, b, layer, t, ip in self.recent[-50:]],
                 "top": [{"d": d, "c": v["c"], "g": categorize(d)} for d, v in self.top_blocked(10)],
+                "categories": self.blocked_categories,
                 "flash_free": self.flash_free(),
                 "flash_total": self.flash_total(),
                 "flash_chip": self.flash_chip(),

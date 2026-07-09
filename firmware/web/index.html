@@ -69,8 +69,13 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
   </div>
   <div class="grid-mid">
     <div class="gc ai d6">
-      <h3 style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px">Block vs Allowed</h3>
-      <div style="position:relative;height:200px"><canvas id="donut"></canvas></div>
+      <h3 style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px">Blocked Categories</h3>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;height:200px">
+        <div style="position:relative;width:50%;height:100%"><canvas id="donut"></canvas></div>
+        <div id="catLegend" style="width:50%;display:flex;flex-direction:column;gap:10px">
+          <div style="text-align:center;color:#64748b;font-size:13px">Loading categories&#8230;</div>
+        </div>
+      </div>
     </div>
     <div class="gc ai d6">
       <h3 style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:16px;text-transform:uppercase;letter-spacing:.5px">System Info</h3>
@@ -105,8 +110,28 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
 </main>
 <script>
 tailwind.config={theme:{extend:{colors:{accent:'#6366f1'}}}}
-var ch=null
+var ch=null;
+var uptimeSec=0;
+
 function fmt(n){return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?(n/1e3).toFixed(1)+'K':''+n}
+
+function updateUptimeUI(u) {
+  var h=Math.floor(u/3600),m=Math.floor((u%3600)/60),s=u%60;
+  var displayStr=h+'h '+m+'m '+s+'s';
+  var upNav=document.getElementById('upNav');
+  if(upNav) upNav.textContent=displayStr;
+  var sU=document.getElementById('sU');
+  if(sU) sU.textContent=displayStr;
+}
+
+function tickClock() {
+  if(uptimeSec>0) {
+    uptimeSec++;
+    updateUptimeUI(uptimeSec);
+  }
+}
+setInterval(tickClock,1000);
+
 function render(d){
   document.getElementById('kT').textContent=fmt(d.total)
   document.getElementById('kB').textContent=fmt(d.blocked)
@@ -115,36 +140,76 @@ function render(d){
   document.getElementById('kE').textContent=fmt(d.blocklist_entries||0)
   document.getElementById('lT').textContent=d.blocked+' blocked'
   document.getElementById('lR').textContent=d.total+' queries'
-  var u=d.uptime,h=Math.floor(u/3600),m=Math.floor((u%3600)/60),s=u%60
-  document.getElementById('upNav').textContent=h+'h '+m+'m '+s+'s'
-  document.getElementById('sU').textContent=h+'h '+m+'m '+s+'s'
+  
+  // Sync & update uptime
+  uptimeSec=d.uptime||0;
+  updateUptimeUI(uptimeSec);
+  
   document.getElementById('sUp').textContent=d.upstream||'--'
   document.getElementById('sL').textContent=(d.upstream_rtt && d.upstream_rtt<999999)?d.upstream_rtt+' ms':'--'
+  
   var tK=Math.round((d.total_ram||0)/1024),uK=Math.round((d.alloc_ram||0)/1024),fK=Math.round((d.free_ram||0)/1024),rp=tK?Math.round(uK/tK*100):0
   document.getElementById('sR').textContent=uK+'KB/'+tK+'KB'
   document.getElementById('sRf').textContent=fK+'KB'
   document.getElementById('sRp').textContent=rp
   document.getElementById('sRb').style.width=Math.min(rp,100)+'%'
+  
   var ft=Math.round((d.flash_total||0)/1024),ff=Math.round((d.flash_free||0)/1024),fp=ft?Math.round((ft-ff)/ft*100):0
   document.getElementById('sF').textContent=(ft-ff)+'KB/'+ft+'KB'
   document.getElementById('sFf').textContent=ff+'KB'
   document.getElementById('sFp').textContent=fp
   document.getElementById('sFb').style.width=Math.min(fp,100)+'%'
+  
   document.getElementById('sC').textContent=(d.cpu_freq||240)+' MHz'
   document.getElementById('sCo').textContent=(d.core_count||2)+' cores'
   document.getElementById('sI').textContent=d.ip||'--'
   document.getElementById('sT').textContent=(d.cpu_temp&&d.cpu_temp<100)?d.cpu_temp+'\u00b0C':'--'
-  var hd=d.blocked>0||d.allowed>0
-  var cd=hd?[d.blocked,d.allowed]:[0,1]
-  var cc=hd?['rgba(239,68,68,.8)','rgba(34,197,94,.8)']:['rgba(239,68,68,.08)','rgba(255,255,255,.04)']
-  var cb=hd?['#ef4444','#22c55e']:['rgba(239,68,68,.1)','rgba(255,255,255,.08)']
+  
+  // Render Blocked Categories
+  var cats=d.categories||{ads:0,tracking:0,telemetry:0,malware:0,social:0};
+  var catData=[cats.ads,cats.tracking,cats.telemetry,cats.malware,cats.social];
+  var hasData=catData.some(function(v){return v>0});
+  var chartData=hasData?catData:[1,0,0,0,0]; // Placeholder if no data
+  
+  var labels=['Ads','Tracking','Telemetry','Malware','Social'];
+  var colors=['#10b981','#3b82f6','#8b5cf6','#f97316','#ec4899'];
+  var bgColors=['rgba(16,185,129,.75)','rgba(59,130,246,.75)','rgba(139,92,246,.75)','rgba(249,115,22,.75)','rgba(236,72,153,.75)'];
+  var borderColors=['#10b981','#3b82f6','#8b5cf6','#f97316','#ec4899'];
+  
+  // Custom HTML Legend
+  var legendHtml=labels.map(function(label,idx){
+    var key=label.toLowerCase();
+    var val=cats[key]||0;
+    return '<div style="display:flex;align-items:center;font-size:12px;width:100%"><span style="width:7px;height:7px;border-radius:50%;background:'+colors[idx]+';display:inline-block;margin-right:6px"></span><span style="color:#94a3b8;flex:1">'+label+'</span><span style="font-weight:600;color:#e2e8f0">'+fmt(val)+'</span></div>';
+  }).join('');
+  document.getElementById('catLegend').innerHTML=legendHtml;
+  
   if(typeof Chart!=='undefined'){
-    if(!ch){ch=new Chart(document.getElementById('donut').getContext('2d'),{type:'doughnut',data:{labels:['Blocked','Allowed'],datasets:[{data:cd,backgroundColor:cc,borderColor:cb,borderWidth:2,hoverOffset:8}]},options:{responsive:true,maintainAspectRatio:false,cutout:'70%',plugins:{legend:{position:'bottom',labels:{color:'#94a3b8',padding:12,usePointStyle:true,font:{size:12}}}},animation:{animateRotate:true,duration:800}}})}
-    else{ch.data.datasets[0].data=cd;ch.data.datasets[0].backgroundColor=cc;ch.data.datasets[0].borderColor=cb;ch.update()}
+    if(!ch){
+      ch=new Chart(document.getElementById('donut').getContext('2d'),{
+        type:'doughnut',
+        data:{
+          labels:labels,
+          datasets:[{data:chartData,backgroundColor:bgColors,borderColor:borderColors,borderWidth:1.5,hoverOffset:6}]
+        },
+        options:{
+          responsive:true,
+          maintainAspectRatio:false,
+          cutout:'65%',
+          plugins:{legend:{display:false}},
+          animation:{animateRotate:true,duration:800}
+        }
+      });
+    } else {
+      ch.data.datasets[0].data=chartData;
+      ch.update();
+    }
   }
+  
   var rl=document.getElementById('listR')
   if(!d.recent||!d.recent.length){rl.innerHTML='<div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">Waiting for queries&#8230;</div>'}
   else{rl.innerHTML=d.recent.slice(-30).reverse().map(function(r){var t=r[3]<3?'now':r[3]<60?r[3]+'s':Math.floor(r[3]/60)+'m';return'<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px"><span style="font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;'+(r[1]?'background:rgba(239,68,68,.15);color:#ef4444':'background:rgba(34,197,94,.15);color:#22c55e')+'">'+(r[1]?'BLK':'OK')+'</span>'+(r[5]?'<span style="color:#64748b;font-size:11px;font-family:monospace">['+r[5]+']</span>':'')+'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r[0]+'</span><span style="color:#64748b;font-size:11px">'+t+'</span></div>'}).join('')}
+  
   var tl=document.getElementById('listT')
   if(!d.top||!d.top.length){tl.innerHTML='<div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">No blocks yet</div>'}
   else{var mx=d.top[0].c;tl.innerHTML=d.top.map(function(x,i){return'<div style="display:flex;align-items:center;gap:8px;padding:6px 0"><span style="font-size:12px;color:#64748b;min-width:20px">'+(i+1)+'.</span><div style="flex:1;min-width:0"><div style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+x.d+'</div><div style="width:100%;height:3px;background:rgba(255,255,255,.06);border-radius:2px;margin-top:3px"><div style="height:100%;border-radius:2px;background:#ef4444;width:'+Math.round(x.c/mx*100)+'%"></div></div></div><span style="font-size:12px;color:#94a3b8;font-weight:600;min-width:32px;text-align:right">'+x.c+'</span></div>'}).join('')}
