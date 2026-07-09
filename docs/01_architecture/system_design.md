@@ -149,3 +149,25 @@ GCT is an automated self-healing layer designed to bypass false positives in ups
 - **Garbage Collection (GC)**: The MicroPython heap is strictly limited. The web server and DNS proxy manually invoke `gc.collect()` at strategic intervals.
 - **Streaming Uploads**: The `/api/upload` endpoint streams incoming binary files to LittleFS in 1KB chunks and runs `gc.collect()` every 8KB. This prevents `MemoryError` when uploading the 1.2MB blocklist.
 - **Defensive TCP Accept Loop**: The server implements an outer `try-except` loop to catch `ENOBUFS` or `MemoryError` when clients spam requests. It backs off for 100ms and recovers the socket, preventing background thread death.
+
+---
+
+## 6. DNS Upstream Optimization (The Triad Strategy)
+
+To maintain high availability and low latency despite ISP throttling, router reboots, or DNS server outages, the ESP32 employs a three-pronged "Triad" self-healing optimization strategy, combined with seamless background transitions.
+
+### 6.1 The Triad Triggers
+1. **Periodic Maintenance (2 Hours)**: 
+   - Every 2 hours, the ESP32 proactively measures the latency of top global DNS providers (1.1.1.1, 8.8.8.8, 9.9.9.9, etc.) along with the local DHCP-assigned DNS. It locks onto the fastest one to adapt to long-term BGP routing shifts.
+2. **Reactive Congestion Control (RTT > 85ms)**: 
+   - An Exponential Moving Average (EMA) tracks the Round-Trip Time (RTT) of every successful query.
+   - If the EMA RTT stays above 85ms (and at least 2 minutes have passed since the last optimization), the ESP32 detects network congestion and immediately hunts for a better server.
+3. **Fail-Fast Dead-Peer Detection (5 Consecutive Timeouts)**: 
+   - If a DNS upstream completely drops packets or goes offline, the RTT algorithm cannot update (since it only measures successful queries).
+   - A background garbage collector (`_cleanup_pending_queries`) tracks queries older than 2000ms. If 5 queries timeout consecutively without a single successful response in between, the ESP32 declares the upstream "dead" and immediately failovers.
+
+### 6.2 Seamless Dual-Core Transitions (Zero-Downtime)
+When any of the Triad triggers fire, the ESP32 executes the DNS optimization using its Dual-Core architecture:
+- **Background Worker**: The `optimize_upstream` function is offloaded to a background RTOS thread. This thread performs blocking socket pings (`_measure_rtt`) across 5-6 servers for ~1.5 seconds.
+- **Uninterrupted Main Loop**: During this 1.5s window, the main thread continues resolving DNS queries using the *old* upstream IP. Because DNS is connectionless (UDP), this works perfectly.
+- **Atomic Swap**: Once the background thread identifies the new optimal server, it atomically overwrites `self.upstream_ip`. The very next query received by the main loop is instantly routed to the new server, while responses from the old server (still in transit) are gracefully accepted and returned to the client. This guarantees a 0ms interruption to the user's internet experience.
