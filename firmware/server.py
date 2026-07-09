@@ -284,6 +284,7 @@ class WebServer:
         resp = (
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: application/json\r\n"
+            "Cache-Control: no-cache, no-store, must-revalidate\r\n"
             "Connection: close\r\n"
             "Access-Control-Allow-Origin: *\r\n"
             f"Content-Length: {len(body)}\r\n"
@@ -313,6 +314,7 @@ class WebServer:
         header = (
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: text/html; charset=utf-8\r\n"
+            "Cache-Control: no-cache, no-store, must-revalidate\r\n"
             "Connection: close\r\n"
             f"Content-Length: {size}\r\n"
             "\r\n"
