@@ -7,3 +7,5 @@ data/
 *.log
 .codegraph/
 AGENTS.md
+scratch/
+firmware/web/*.gz
