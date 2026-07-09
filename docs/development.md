@@ -91,6 +91,7 @@ curl -X POST http://<ESP32_IP>/api/reboot
 - **Active Clients KPI**: Tracks active querying client IPs over a rolling 10-minute window in memory.
 - **Smooth Ticking Uptime**: Implemented local JavaScript clock running at 1s intervals, syncing with authoritative ESP32 system uptime every 3s via AJAX.
 - **Bonjour/mDNS/DNS-SD Bypass**: Stripped legacy blocked `.arpa` and `.local` entries from persistent `stats.json` history on startup, ensuring local discovery never breaks or shows up in the blocked logs.
+- **Organic Heartbeat LED (Lub-Dub)**: Replaced standard timer blinks with an organic double-blink state machine (Lub-Dub) running asynchronously on a hardware timer callback. Heartbeats are triggered at randomized intervals (4 to 7 seconds) to simulate a living device, while blocked DNS queries blink the LED off for 100ms. This is 100% non-blocking, ensuring zero impact on DNS latency.
 
 ### 2. Operational Challenges & Solutions
 
