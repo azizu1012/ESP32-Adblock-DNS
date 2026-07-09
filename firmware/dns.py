@@ -572,12 +572,12 @@ class DNSServer:
             self.upstream_rtt = rtt
             self.stats.upstream_rtt = rtt
             
-            # Tinh trung binh trượt RTT
-            if self.rtt_cnt < 5:
-                self.rtt_sum += rtt
-                self.rtt_cnt += 1
+            # Tinh trung binh trượt (EMA) RTT de lam min gai nhieu
+            if self.rtt_sum == 0:
+                self.rtt_sum = rtt
             else:
-                self.rtt_sum = int(self.rtt_sum * 0.8 + rtt * 0.2)
+                self.rtt_sum = (self.rtt_sum * 0.8) + (rtt * 0.2)
+                
                 if self.rtt_sum > 150 and time.ticks_diff(time.ticks_ms(), self.last_opt_ticks) > 300000:
                     print(f"[DNS] High latency detected ({self.rtt_sum} ms), re-optimizing...")
                     self.rtt_cnt = 0
