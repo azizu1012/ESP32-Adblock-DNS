@@ -110,19 +110,26 @@ class Stats:
             self.total += 1
             if is_blocked:
                 self.blocked += 1
-                self.last_blocked = domain
-                today = self._today
-                if domain in self.top:
-                    self.top[domain]["c"] += 1
-                else:
-                    self.top[domain] = {"c": 1, "d": today}
+                if domain not in self.top:
+                    # Prevent OOM from random domain spam
+                    if len(self.top) >= 200:
+                        min_k = min(self.top, key=lambda k: self.top[k]["c"])
+                        del self.top[min_k]
+                    self.top[domain] = {"c": 0, "s": layer, "d": self._today}
+                self.top[domain]["c"] += 1
+                self.top[domain]["d"] = self._today
                 self.dirty = True
+                
                 cats = categorize(domain)
                 for cat in cats:
                     if cat in self.blocked_categories:
                         self.blocked_categories[cat] += 1
             if client_ip:
                 self.client_ips[client_ip] = time()
+                # Prevent OOM from spoofed IPs
+                if len(self.client_ips) > 50:
+                    oldest_ip = min(self.client_ips, key=self.client_ips.get)
+                    del self.client_ips[oldest_ip]
             self.recent.append((domain, is_blocked, layer, time(), client_ip))
             if len(self.recent) > 200:
                 self.recent = self.recent[-100:]
