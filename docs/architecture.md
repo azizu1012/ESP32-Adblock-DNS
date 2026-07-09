@@ -1,90 +1,127 @@
-# Architecture
+# ESP32 AdBlocker Architecture
 
-## Blocking Pipeline
+This document details the internal architecture, memory management, and optimizations that allow a massive 230K+ domain blocklist to run efficiently on an ESP32 with only ~132KB of available RAM.
 
-Each DNS query passes through five layers. The first match wins. Each query reports which layer handled it (displayed on the web dashboard).
+---
 
-```text
-Local Bypass (.local/.arpa) ➔ Static SAFELIST ➔ Dynamic Safelist (GCT) ➔ Heuristics ➔ Keywords ➔ Blocked Bloom Filter
+## 1. DNS Blocking Pipeline
+
+Each DNS query passes through five specialized layers. The first match wins, and the query is resolved or blocked immediately.
+
+```mermaid
+flowchart TD
+    Q([Incoming DNS Query]) --> L1{1. Local Bypass}
+    L1 -- ".local / .arpa" --> Allow([Allow - Zero Latency])
+    L1 -- "Other" --> L2{2. Static Safelist}
+    L2 -- "Match" --> Allow
+    L2 -- "No Match" --> L3{3. Dynamic Safelist\n(GCT)}
+    L3 -- "Match & < 30 req/min" --> Allow
+    L3 -- "Abuse > 30 req/min" --> Demote[Demote from Safelist]
+    L3 -- "No Match" --> L4{4. Heuristics}
+    Demote --> L4
+    L4 -- "ad12.example.com" --> Block([Block - Heuristic])
+    L4 -- "No Match" --> L5{5. Keywords}
+    L5 -- "'telemetry', 'analytics'" --> Block([Block - Keyword])
+    L5 -- "No Match" --> L6{6. Blocked Bloom Filter}
+    L6 -- "Match" --> Block([Block - Hash])
+    L6 -- "No Match" --> Resolve([Resolve Upstream])
 ```
 
-### 1. Local Network Bypass
-`dns.py:231-233` — Bypasses blocking checks entirely for domains ending in `.local` (mDNS) or `.arpa` (Reverse DNS & Service Discovery). This ensures local devices (printers, Chromecast, AirPlay) discover each other with zero latency and zero CPU load on the ESP32.
-Returns `(False, None)`.
-
-### 2. Static SAFELIST
-`dns.py:236-237` — Tuple of whitelisted domains. Checked first using exact matching via `domain in SAFELIST`.
-Returns `(False, None)`.
-
-### 3. Dynamic Safelist (GCT)
-`dns.py:239-246` — Thread-safe dictionary containing whitelisted domains rescued by the **Graduated Consensus Trust (GCT)** daemon. If the domain is within its probation lifetime, the query is passed. If the client queries a domain in this list more than 30 times in 1 minute, it is instantly demoted (removed from the safelist) to prevent abuse.
-Returns `(False, None)`.
-
-### 4. Heuristics
-`dns.py:248-256` — Checks if the first label of the domain starts with `ad` followed by an empty suffix, `s`, a number, or `s` + number.
-Returns `(True, "heuristic")`.
-- *Matches*: `ads.example.com`, `ad12.example.com`
-- *Misses*: `adventure.example.com`
-
-### 5. Keywords
-`dns.py:258-261` — Scans domain labels for known tracking keywords (`telemetry`, `analytics`, `doubleclick`, etc.).
-Returns `(True, "keyword")`.
-
-### 6. Blocked Bloom Filter (BBF)
-`dns.py:263-267` — Last resort. Performs a single 64-byte read from `blocked.bin` to check membership in the Blocked Bloom Filter. If all 8 mapped bits inside the retrieved block are set to `1`, the domain is blocked.
-Returns `(True, "hash")`.
+### Layer Details
+1. **Local Network Bypass**: Bypasses checks for `.local` (mDNS) and `.arpa` (Reverse DNS). Ensures smart-home devices communicate with zero CPU overhead.
+2. **Static Safelist**: Exact string matching for a predefined tuple of essential domains.
+3. **Dynamic Safelist (GCT)**: Thread-safe dictionary of domains rescued by the background Consensus Trust daemon. Includes automatic abuse protection (demotion if >30 requests/minute).
+4. **Heuristics**: Checks if the first label starts with `ad` followed by an empty string, `s`, or numbers (e.g., `ads.`, `ad12.`).
+5. **Keywords**: Scans for known tracking keywords (`telemetry`, `analytics`, etc.).
+6. **Blocked Bloom Filter (BBF)**: Performs a single 64-byte flash read to check membership in the 1.2MB bitmap.
 
 ---
 
-## Blocked Bloom Filter (BBF) Design
+## 2. Blocked Bloom Filter (BBF) Design
 
-To fit 230K+ domains into the ESP32's tiny 2MB filesystem with zero RAM index overhead, we use a **Blocked Bloom Filter**:
+To fit 230K+ domains into the ESP32's tiny 2MB filesystem with **zero RAM overhead**, the system uses a blocked Bloom Filter architecture.
 
-1.  **Block Partitioning**: The filter bitmap is divided into **18,750 blocks** of **64 bytes (512 bits)** each, totaling exactly 1,200,000 bytes.
-2.  **FNV-1a 64-bit Hashing**: The domain is hashed using the 64-bit FNV-1a algorithm:
-    -   The 32 MSBs of the hash select the block index: `block_idx = h_high % 18,750`.
-    -   The 32 LSBs of the hash (`h_low`) are used as the seed for bit position mapping.
-3.  **Double Hashing**: Using the Kirsch-Mitzenmacher technique, 8 orthogonal bit positions inside the 512-bit block are mapped using:
-    `bit_pos = (h_low ^ (i * 0x5bd1e995)) % 512` (for $i$ from 0 to 7).
-4.  **Single Read Seek**: The ESP32 seeks directly to `block_idx * 64` and reads 64 bytes into a pre-allocated buffer (`f.readinto(self._bloom_buf)`). This achieves under **1ms lookup time** with zero memory allocation.
-5.  **Domain Count**: The exact number of blocked domains is written as a 4-byte packed integer at the end of `blocked.bin` (total file size: 1,200,004 bytes).
+```mermaid
+sequenceDiagram
+    participant C as DNS Client
+    participant E as ESP32 (dns.py)
+    participant F as Flash (blocked.bin)
 
----
+    C->>E: Query "doubleclick.net"
+    E->>E: FNV-1a 64-bit Hash
+    E->>E: Calculate block_idx & bit_pos
+    E->>F: f.seek(block_idx * 64)
+    E->>F: f.readinto(buffer, 64)
+    F-->>E: 64 bytes (512 bits)
+    E->>E: Check 8 bit positions
+    E-->>C: Blocked (0.0.0.0)
+```
 
-## Graduated Consensus Trust (GCT)
-
-GCT is an automated self-healing layer designed to bypass false positives in upstream blocklists:
-
--   **Consensus Verification Queue**: When a domain triggers a Bloom Filter block, it is added to a thread-safe verification queue. A background thread processes queries asynchronously without blocking user DNS queries.
--   **Consensus Check**: The worker queries **Google DNS (8.8.8.8)** and checks if all three public adblocking DNS providers (**AdGuard, Control D, Mullvad**) agree the domain is clean.
--   **Graduated TTL Promotion**:
-    -   *Level 0*: 5 minutes whitelisting.
-    -   *Level 1*: 1 hour whitelisting.
-    -   *Level 2*: 24 hours whitelisting.
-    -   Each time a domain is queried after its TTL expires, it undergoes a recheck. If it passes, it is promoted to the next level. If it fails, it is immediately evicted.
--   **Suspicious Activity Demotion**: If a whitelisted domain is queried more than 30 times in 1 minute, it is demoted to prevent malware from abusing the whitelisting mechanism.
+1. **Partitioning**: The 1.2MB filter is divided into **18,750 blocks** of **64 bytes (512 bits)** each.
+2. **Double Hashing**: Using the Kirsch-Mitzenmacher technique, 8 orthogonal bit positions inside the 512-bit block are mapped.
+3. **Single Read Seek**: The ESP32 seeks directly to the calculated block and reads 64 bytes into a pre-allocated `bytearray(64)`. This achieves `< 1ms` lookup time with **zero memory allocation**.
 
 ---
 
-## Web Server & UI Architecture
+## 3. Web Server & UI Architecture
 
-To serve a rich UI without exhausting the ESP32's limited RAM or LwIP socket pool, the system employs a highly optimized **3-Stage Progressive Loading** architecture combined with network-level tuning:
+To serve a rich React-like UI without exhausting the ESP32's limited LwIP socket pool (max 8 concurrent connections), the system employs a **3-Stage Progressive Loading** architecture combined with network-level TCP tuning.
 
-- **3-Stage Progressive Loading**:
-  1. **Bootstrap**: When a client accesses `/`, the server immediately responds with a tiny 1KB `index.html` (the Bootstrap Loader) and closes the socket. This ensures the user instantly sees a "Loading" indicator.
-  2. **Version Check & Bundle Download**: The Bootstrap script fetches `/api/ui/version` (~30 bytes). It compares this against `localStorage`. If the UI bundle is outdated or missing, it downloads the full bundle from `/api/ui`. The UI is then permanently cached in the browser.
-  3. **Polling**: The UI fetches live data from `/api/stats` periodically (~400 bytes).
-  *Result*: Eliminates the need to stream the full 23KB HTML file on every visit, preventing `MemoryError` and PCB starvation when multiple devices load the page.
-- **TCP Delayed ACK Mitigation**: MicroPython's `socket.sendall()` separates packets. If HTTP headers and the body chunk are sent in separate `sendall()` calls, Windows and iOS network stacks hold the ACK for the header packet for **~200ms** (TCP Delayed ACK). The web server merges the HTTP header and the first chunk of the body (or JSON string) into a single byte payload before calling `sendall()`, reducing API latency from ~250ms down to **< 50ms**.
-- **Gzip Pre-Compression**: The ESP32 does not have the CPU/RAM to gzip files on the fly. The full UI bundle (`app.html`) is pre-compressed into `app.html.gz` (~6KB) during serial upload. The web server reads the `.gz` file and serves it with `Content-Encoding: gzip` directly, offloading decompression to the client browser and saving 75% flash read time.
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant E as ESP32 Server
+    
+    Note over B, E: Stage 1: Bootstrap
+    B->>E: GET /
+    E-->>B: 200 OK (index.html, 1KB) [Connection: close]
+    
+    Note over B, E: Stage 2: Version Check & Cache
+    B->>E: GET /api/ui/version
+    E-->>B: {"v": "23330-36"}
+    alt UI not in localStorage OR version changed
+        B->>E: GET /api/ui (Accept-Encoding: gzip)
+        E-->>B: 200 OK (app.html.gz, 6KB)
+        B->>B: Cache to localStorage
+    else UI already in localStorage
+        B->>B: Load UI from localStorage (Instant)
+    end
+    
+    Note over B, E: Stage 3: Polling
+    loop Every 3 seconds
+        B->>E: GET /api/stats
+        E-->>B: {"total": 1500, "blocked": 500...} (~400 bytes)
+    end
+```
+
+### TCP Delayed ACK Mitigation
+On Windows and iOS, HTTP clients wait ~200ms to send an ACK for the HTTP Header before accepting the HTTP Body (TCP Delayed ACK). To bypass this latency penalty on the ESP32:
+```python
+# BAD: Triggers 200ms latency on Windows/iOS
+conn.sendall(header.encode())
+conn.sendall(body.encode())
+
+# GOOD: Combined payload, sub-50ms latency
+conn.sendall(header.encode() + body.encode())
+```
 
 ---
-## Memory & Streaming Optimizations
 
--   **Garbage Collection (GC)**: MicroPython's heap is limited to ~132KB. The web server (`server.py`) and DNS proxy (`dns.py`) frequently call `gc.collect()` to free discarded objects.
--   **Streaming File Upload**: The `/api/upload` endpoint streams incoming files directly to LittleFS in 1KB chunks and runs `gc.collect()` every 8KB, allowing memory-safe transfers of files larger than the entire available RAM.
--   **Locking**: A lock (`_thread.allocate_lock()`) ensures thread safety between the Web Server thread (`server.py`) and the main DNS thread (`dns.py`) when modifying statistics or the dynamic safelist.
--   **Web Server Livelock & Thread Protection**: Under heavy concurrent browser requests (such as F5 spamming from multiple devices), the ESP32 LwIP stack can experience TCP PCB starvation (limited to 4-8 PCBs in `TIME_WAIT` status). This can trigger `MemoryError` or `ENOBUFS` in the socket `accept()` call. The server implements a defensive outer try-except loop wrapper in `server.py` that catches all critical errors (including `MemoryError`), runs `gc.collect()`, and sleeps for `100ms` before retrying, preventing the background web server thread from dying. It also utilizes a short `200ms` header read timeout and drops favicon requests with a fast `404` immediately to avoid duplicate file streams and keep the socket lifecycle as short as possible.
--   **Client-Side Offloading & Split APIs**: To avoid the overhead of rendering large JSON responses (~10KB) which exhaust heap memory, the statistics endpoints are split into `/api/stats` (simple metrics and categories, ~400 bytes), `/api/stats/recent`, and `/api/stats/top`. The dashboard only polls the small endpoint, and selectively fetches the lists when data actually changes (throttled to once every 10 seconds).
--   **ETag Caching**: Static web pages use ETag header comparisons (`If-None-Match`). When validated, the server responds with a fast `304 Not Modified` header instead of reading the filesystem and streaming 23KB of HTML.
--   **Lightweight Client Counting**: Active clients are monitored using an IP Dictionary (`self.client_ips = {}`) storing `{"IP_Address": Last_Query_Timestamp}` instead of traversing the recent list. This removes the count limit and preserves accuracy while keeping memory footprint under 1KB.
+## 4. Graduated Consensus Trust (GCT)
+
+GCT is an automated self-healing layer designed to bypass false positives in upstream blocklists without user intervention.
+
+1. **Consensus Queue**: When a domain triggers the BBF, it's added to a background queue.
+2. **Polling**: A background thread queries Google DNS against AdGuard, Control D, and Mullvad. If the adblockers agree the domain is clean, it is whitelisted.
+3. **Graduated TTL**:
+   - *Level 0*: 5 minutes whitelisting.
+   - *Level 1*: 1 hour whitelisting.
+   - *Level 2*: 24 hours whitelisting.
+
+---
+
+## 5. Memory Optimizations
+
+- **Garbage Collection (GC)**: The MicroPython heap is strictly limited. The web server and DNS proxy manually invoke `gc.collect()` at strategic intervals.
+- **Streaming Uploads**: The `/api/upload` endpoint streams incoming binary files to LittleFS in 1KB chunks and runs `gc.collect()` every 8KB. This prevents `MemoryError` when uploading the 1.2MB blocklist.
+- **Defensive TCP Accept Loop**: The server implements an outer `try-except` loop to catch `ENOBUFS` or `MemoryError` when clients spam requests. It backs off for 100ms and recovers the socket, preventing background thread death.
