@@ -94,6 +94,7 @@ class Stats:
         self.last_blocked = ""
         self.recent = []
         self.top = {}
+        self.client_ips = {}
         self.upstream_ip = "1.1.1.1"
         self.upstream_rtt = 0
         self.blocked_categories = {"ads": 0, "tracking": 0, "telemetry": 0, "analytics": 0, "privacy": 0, "malware": 0, "experiment": 0}
@@ -120,6 +121,8 @@ class Stats:
                 for cat in cats:
                     if cat in self.blocked_categories:
                         self.blocked_categories[cat] += 1
+            if client_ip:
+                self.client_ips[client_ip] = time()
             self.recent.append((domain, is_blocked, layer, time(), client_ip))
             if len(self.recent) > 200:
                 self.recent = self.recent[-100:]
@@ -281,9 +284,8 @@ class Stats:
             return 1
 
     def to_dict(self):
-        """Xuất toàn bộ thống kê dạng dict để serve JSON API."""
+        """Xuất thống kê tóm tắt dạng dict để serve JSON API (lược bỏ recent/top)."""
         self.lock.acquire()
-        now = time()
         try:
             return {
                 "total": self.total,
@@ -295,8 +297,6 @@ class Stats:
                 "alloc_ram": self.alloc_ram(),
                 "total_ram": self.total_ram(),
                 "last_blocked": self.last_blocked,
-                "recent": [(d, b, categorize(d) if b else [], int(now - t), layer, ip) for d, b, layer, t, ip in self.recent[-50:]],
-                "top": [{"d": d, "c": v["c"], "g": categorize(d)} for d, v in self.top_blocked(10)],
                 "categories": self.blocked_categories,
                 "flash_free": self.flash_free(),
                 "flash_total": self.flash_total(),
@@ -307,5 +307,22 @@ class Stats:
                 "upstream": getattr(self, "upstream_ip", "1.1.1.1"),
                 "upstream_rtt": getattr(self, "upstream_rtt", 0),
             }
+        finally:
+            self.lock.release()
+
+    def to_recent_list(self):
+        """Xuất danh sách 50 truy vấn gần đây."""
+        self.lock.acquire()
+        now = time()
+        try:
+            return [(d, b, categorize(d) if b else [], int(now - t), layer, ip) for d, b, layer, t, ip in self.recent[-50:]]
+        finally:
+            self.lock.release()
+
+    def to_top_list(self):
+        """Xuất danh sách top 10 domain bị chặn."""
+        self.lock.acquire()
+        try:
+            return [{"d": d, "c": v["c"], "g": categorize(d)} for d, v in self.top_blocked(10)]
         finally:
             self.lock.release()

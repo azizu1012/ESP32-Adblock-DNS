@@ -10,6 +10,8 @@ Returns the dashboard HTML. Auto-refreshes every 3 seconds with `/api/stats`.
 
 ## `GET /api/stats` — Stats JSON
 
+Returns lightweight counters, system metrics, and categorical counts (excluding lists to optimize memory and network footprint).
+
 ```json
 {
   "total": 1520,
@@ -17,38 +19,64 @@ Returns the dashboard HTML. Auto-refreshes every 3 seconds with `/api/stats`.
   "allowed": 986,
   "ratio": 35.1,
   "uptime": 84720,
-  "free_ram": 102400,
-  "alloc_ram": 64000,
-  "total_ram": 166400,
+  "free_ram": 87776,
+  "alloc_ram": 38048,
+  "total_ram": 125824,
   "last_blocked": "doubleclick.net",
-  "recent": [
-    ["doubleclick.net", true, "tracking", 2, "hash"],
-    ["google.com", false, "", 5, ""],
-    ["legit-site.com", false, "", 1, "safelist"]
-  ],
-  "top": [
-    {"d": "doubleclick.net", "c": 47, "g": "tracking"},
-    {"d": "scorecardresearch.com", "c": 23, "g": "tracking"}
-  ],
+  "categories": {
+    "ads": 48,
+    "tracking": 32,
+    "telemetry": 143,
+    "analytics": 41,
+    "privacy": 3,
+    "malware": 0,
+    "experiment": 18
+  },
   "flash_free": 640000,
   "flash_total": 2097152,
   "flash_chip": 4194304,
   "blocklist_entries": 230003,
-  "cpu_freq": 240,
-  "core_count": 2
+  "cpu_freq": 160,
+  "core_count": 2,
+  "upstream": "8.8.4.4",
+  "upstream_rtt": 35.0,
+  "active_clients": 4
 }
 ```
 
 ### Fields:
-- `recent[][2]` — Category string (empty if passed).
-- `recent[][3]` — Age in seconds since the query occurred.
-- `recent[][4]` — Blocking layer name (`"safelist"`, `"heuristic"`, `"keyword"`, `"hash"`, or `""`).
-- `flash_free` — Free filesystem bytes (increased by 640KB due to Blocked Bloom Filter savings).
+- `flash_free` — Free filesystem bytes.
 - `flash_total` — Total filesystem bytes.
 - `flash_chip` — Raw chip flash size.
-- `blocklist_entries` — Number of entries mapped inside the Bloom Filter (read from the footer).
+- `blocklist_entries` — Number of entries mapped inside the Bloom Filter.
 - `cpu_freq` — CPU frequency in MHz.
 - `core_count` — Number of CPU cores.
+- `active_clients` — Unique active client IPs in the last 10 minutes (using a dedicated memory dictionary).
+
+## `GET /api/stats/recent` — Recent Queries JSON
+
+Returns the 50 most recent DNS queries.
+
+```json
+[
+  ["doubleclick.net", true, ["ads", "tracking"], 2, "hash", "192.168.1.43"],
+  ["google.com", false, [], 5, "", "192.168.1.174"]
+]
+```
+
+### Fields:
+- Array containing `[domain, is_blocked, categories[], age_in_seconds, layer_name, client_ip]`.
+
+## `GET /api/stats/top` — Top Blocked JSON
+
+Returns the top 10 most blocked domains.
+
+```json
+[
+  {"d": "doubleclick.net", "c": 47, "g": ["tracking", "ads"]},
+  {"d": "scorecardresearch.com", "c": 23, "g": ["tracking"]}
+]
+```
 
 ## `GET /setup` — Setup page
 

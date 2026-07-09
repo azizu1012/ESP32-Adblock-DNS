@@ -55,6 +55,10 @@ class DNSServer:
 
         # Bloom Filter Buffer
         self._bloom_buf = bytearray(64)  # Đọc khối 64 bytes từ flash
+        
+        # Cau truc du lieu cho forwarder khong block (Async DNS proxy)
+        self.pending_queries = {}
+        self.tx_counter = 0
 
         # Graduated Consensus Trust (GCT) structures
         self.lock = _thread.allocate_lock()
@@ -173,46 +177,72 @@ class DNSServer:
                 pass
 
     def start(self):
-        """Mở socket DNS (UDP) và socket upstream."""
+        """Mở socket DNS (UDP) và socket upstream dưới dạng non-blocking."""
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.setblocking(False)
         self.sock.bind(("0.0.0.0", self.PORT))
+        
+        # Socket gui len DNS upstream duoc dat o che do non-blocking de khong treo main thread
         self.upstream = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.upstream.settimeout(2.0)
+        self.upstream.setblocking(False)
+        
         print(f"DNS server on port {self.PORT}")
         return self.sock
 
     def poll(self):
-        """Poll một gói DNS: parse, check block, proxy hoặc trả về fake response."""
-        readable, _, _ = select.select([self.sock], [], [], 1.0)
+        """Poll hoat dong DNS khong block: chap nhan ca truy van tu client va phan hoi tu upstream."""
+        self._cleanup_pending_queries()
+        
+        try:
+            # Giam sat dong thoi ca client socket va upstream socket de forward bat dong bo
+            readable, _, _ = select.select([self.sock, self.upstream], [], [], 0.05)
+        except OSError:
+            return False
+
         if not readable:
             self._gc_tick()
             return False
-        request, addr = self.sock.recvfrom(512)
-        if len(request) < 12:
-            return False
-        self.last_query_ticks = time.ticks_ms()
-        domain = self._parse_domain(request)
-        blocked = False
-        layer = None
-        if domain:
-            is_blocked, layer = self._check(domain)
-            if is_blocked:
-                self.stats.add(domain, True, layer, client_ip=addr[0])
-                print(f"[DNS] {addr[0]} -> {domain} (BLOCK: {layer})")
-                resp = self._block_response(request)
-                if resp:
-                    self.sock.sendto(resp, addr)
-                blocked = True
-            else:
-                self.stats.add(domain, False, client_ip=addr[0])
-                print(f"[DNS] {addr[0]} -> {domain} (PASS)")
-                self._proxy(request, addr, domain)
-        else:
-            self._proxy(request, addr, None)
+
+        blocked_any = False
+        for s in readable:
+            if s is self.sock:
+                try:
+                    request, addr = self.sock.recvfrom(512)
+                except OSError:
+                    continue
+                if len(request) < 12:
+                    continue
+                self.last_query_ticks = time.ticks_ms()
+                domain = self._parse_domain(request)
+                if domain:
+                    is_blocked, layer = self._check(domain)
+                    if is_blocked:
+                        self.stats.add(domain, True, layer, client_ip=addr[0])
+                        print(f"[DNS] {addr[0]} -> {domain} (BLOCK: {layer})")
+                        resp = self._block_response(request)
+                        if resp:
+                            try:
+                                self.sock.sendto(resp, addr)
+                            except OSError:
+                                pass
+                        blocked_any = True
+                    else:
+                        self.stats.add(domain, False, client_ip=addr[0])
+                        print(f"[DNS] {addr[0]} -> {domain} (PASS)")
+                        self._async_proxy_send(request, addr, domain)
+                else:
+                    self._async_proxy_send(request, addr, None)
+            elif s is self.upstream:
+                try:
+                    response, _ = self.upstream.recvfrom(1024)
+                except OSError:
+                    continue
+                if len(response) >= 12:
+                    self._async_proxy_recv(response)
+        
         self._gc_tick()
-        return blocked
+        return blocked_any
 
     def _gc_tick(self):
         """Thu gom rác mỗi 100 poll để tránh STW đột ngột."""
@@ -484,9 +514,8 @@ class DNSServer:
         except:
             return b""
 
-    def _proxy(self, request, addr, domain=None):
-        """Chuyển tiếp DNS request lên upstream và giám sát hành vi tên miền tạm tha."""
-        # Giám sát tần suất của tên miền đang trong dynamic safelist
+    def _async_proxy_send(self, request, client_addr, domain=None):
+        """Gui DNS request len upstream bang cach map TX ID ma khong he gay block."""
         if domain and domain in self.safelist_dyn:
             now_sec = time.time()
             count, start_t = self.query_counts.get(domain, (0, now_sec))
@@ -496,8 +525,6 @@ class DNSServer:
             else:
                 count += 1
             self.query_counts[domain] = (count, start_t)
-
-            # Nếu spam > 30 requests/phút -> Phát hiện hành vi bất thường, thu hồi tạm tha ngay
             if count > 30:
                 print(f"[GCT] Demoted {domain} due to high activity: {count} req/min")
                 with self.lock:
@@ -505,20 +532,47 @@ class DNSServer:
                         del self.safelist_dyn[domain]
                 self.query_counts[domain] = (0, now_sec)
 
-        t0_us = time.ticks_us()
-        self.last_query_ticks = time.ticks_ms()
-        try:
-            self.upstream.sendto(request, (self.upstream_ip, self.PORT))
-            response, _ = self.upstream.recvfrom(1024)
-            self.sock.sendto(response, addr)
+        # Lay client TX ID de luu vet phuc hoi
+        client_tx_id = struct.unpack(">H", request[0:2])[0]
+        
+        # Sinh Transaction ID duy nhat cho upstream
+        with self.lock:
+            self.tx_counter = (self.tx_counter + 1) & 0xFFFF
+            upstream_tx_id = self.tx_counter
             
-            # Đo RTT
-            dt_us = time.ticks_diff(time.ticks_us(), t0_us)
+        self.pending_queries[upstream_tx_id] = (client_addr, client_tx_id, time.ticks_ms(), time.ticks_us())
+        modified_request = struct.pack(">H", upstream_tx_id) + request[2:]
+        
+        try:
+            self.upstream.sendto(modified_request, (self.upstream_ip, self.PORT))
+        except OSError as e:
+            print(f"[DNS] Upstream send error: {e}")
+            try:
+                self.upstream.close()
+            except:
+                pass
+            self.upstream = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.upstream.setblocking(False)
+
+    def _async_proxy_recv(self, response):
+        """Nhan phan hoi tu upstream, restore TX ID va forward ve dung client."""
+        upstream_tx_id = struct.unpack(">H", response[0:2])[0]
+        query_info = self.pending_queries.pop(upstream_tx_id, None)
+        if query_info:
+            client_addr, client_tx_id, start_ticks, start_us = query_info
+            client_response = struct.pack(">H", client_tx_id) + response[2:]
+            try:
+                self.sock.sendto(client_response, client_addr)
+            except OSError:
+                pass
+                
+            # Do RTT
+            dt_us = time.ticks_diff(time.ticks_us(), start_us)
             rtt = round(dt_us / 1000.0, 1)
             self.upstream_rtt = rtt
             self.stats.upstream_rtt = rtt
             
-            # Tính trung bình trượt RTT
+            # Tinh trung binh trượt RTT
             if self.rtt_cnt < 5:
                 self.rtt_sum += rtt
                 self.rtt_cnt += 1
@@ -532,16 +586,19 @@ class DNSServer:
                         self.optimize_upstream()
                     except:
                         pass
-        except Exception as e:
-            print(f"[DNS] Upstream {self.upstream_ip} error: {e}")
-            try:
-                self.upstream.close()
-            except:
-                pass
-            self.upstream = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.upstream.settimeout(2.0)
-            if time.ticks_diff(time.ticks_ms(), self.last_opt_ticks) > 30000:
-                try:
-                    self.optimize_upstream()
-                except:
-                    pass
+
+    def _cleanup_pending_queries(self):
+        """Don dep cac truy van cho qua lau (> 2s) de tranh ro ri RAM."""
+        now = time.ticks_ms()
+        last_clean = getattr(self, "_last_clean_ticks", 0)
+        if time.ticks_diff(now, last_clean) < 5000:
+            return
+        self._last_clean_ticks = now
+        
+        todel = []
+        for tx_id, info in self.pending_queries.items():
+            start_ticks = info[2]
+            if time.ticks_diff(now, start_ticks) > 2000:
+                todel.append(tx_id)
+        for tx_id in todel:
+            self.pending_queries.pop(tx_id, None)

@@ -106,6 +106,10 @@ class WebServer:
                 self._handle_post(conn, buf, path, wifi_manager)
             elif path == "/api/stats":
                 self._send_json(conn, self._build_stats(wifi_manager))
+            elif path == "/api/stats/recent":
+                self._send_json(conn, self.stats.to_recent_list() if self.stats else [])
+            elif path == "/api/stats/top":
+                self._send_json(conn, self.stats.to_top_list() if self.stats else [])
             elif path == "/api/safelist":
                 res = list(self.dns.custom_safelist) if (self.dns and hasattr(self.dns, "custom_safelist")) else []
                 self._send_json(conn, res)
@@ -271,15 +275,27 @@ class WebServer:
         # Calculate active clients in last 10 minutes (600s)
         active_clients = 1
         try:
+            self.stats.lock.acquire()
             now = time.time()
-            ips = set()
-            for r in self.stats.recent:
-                if len(r) > 4 and now - r[3] < 600:
-                    ips.add(r[4])
-            if ips:
-                active_clients = len(ips)
+            cutoff = now - 600
+            count = 0
+            to_delete = []
+            for ip, t in self.stats.client_ips.items():
+                if t > cutoff:
+                    count += 1
+                else:
+                    to_delete.append(ip)
+            for ip in to_delete:
+                del self.stats.client_ips[ip]
+            if count > 0:
+                active_clients = count
         except:
             pass
+        finally:
+            try:
+                self.stats.lock.release()
+            except:
+                pass
         d["active_clients"] = active_clients
 
         # Expose dynamic safelist (GCT)

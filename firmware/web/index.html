@@ -45,6 +45,8 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
   .gc{padding:14px}
   .kv{font-size:22px}
 }
+@keyframes spin{100%{transform:rotate(360deg)}}
+.spinning{animation:spin 1s linear infinite}
 </style>
 </head>
 <body>
@@ -95,7 +97,12 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
   <div class="grid-bot">
     <div class="gc ai d6">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <h3 style="font-size:14px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Recent Queries</h3>
+        <div style="display:flex;align-items:center;gap:8px">
+          <h3 style="font-size:14px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Recent Queries</h3>
+          <button onclick="refreshRecent(true)" style="background:none;border:none;color:#64748b;cursor:pointer;display:flex;align-items:center;padding:2px;border-radius:4px;transition:all 0.2s" onmouseover="this.style.color='#f1f5f9'" onmouseout="this.style.color='#64748b'" title="Refresh recent list">
+            <span id="iconRefR" data-lucide="refresh-cw" style="width:14px;height:14px"></span>
+          </button>
+        </div>
         <span id="lR" style="font-size:12px;color:#64748b">--</span>
       </div>
       <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
@@ -110,7 +117,12 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
     </div>
     <div class="gc ai d6">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <h3 style="font-size:14px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Top Blocked</h3>
+        <div style="display:flex;align-items:center;gap:8px">
+          <h3 style="font-size:14px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Top Blocked</h3>
+          <button onclick="refreshTop(true)" style="background:none;border:none;color:#64748b;cursor:pointer;display:flex;align-items:center;padding:2px;border-radius:4px;transition:all 0.2s" onmouseover="this.style.color='#f1f5f9'" onmouseout="this.style.color='#64748b'" title="Refresh top blocked">
+            <span id="iconRefT" data-lucide="refresh-cw" style="width:14px;height:14px"></span>
+          </button>
+        </div>
         <span id="lT" style="font-size:12px;color:#64748b">0 blocked</span>
       </div>
       <div id="listT"><div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">Loading&#8230;</div></div>
@@ -235,16 +247,63 @@ function render(d){
     }
   }
   
-  // Cache and Filter/Render Recent Queries
-  rawRecentQueries=d.recent||[];
-  filterRecent();
-  
-  // Render Top Blocked List with 1-click Whitelist and multi-tag badges
+  // Render Top and Recent list are handled separately now
+}
+
+var lastTotalCount = -1;
+var lastBlockedCount = -1;
+var lastRecentFetch = 0;
+var lastTopFetch = 0;
+var isFetchingRecent = false;
+var isFetchingTop = false;
+
+async function refreshRecent(force = false) {
+  if (isFetchingRecent) return;
+  var now = Date.now();
+  if (!force && (now - lastRecentFetch < 10000)) return;
+  isFetchingRecent = true;
+  var icon = document.getElementById('iconRefR');
+  if (icon) icon.classList.add('spinning');
+  try {
+    var r = await fetch('/api/stats/recent');
+    var list = await r.json();
+    rawRecentQueries = list || [];
+    filterRecent();
+    lastRecentFetch = Date.now();
+  } catch (e) {
+    console.error("Fetch recent error:", e);
+  } finally {
+    isFetchingRecent = false;
+    if (icon) icon.classList.remove('spinning');
+  }
+}
+
+async function refreshTop(force = false) {
+  if (isFetchingTop) return;
+  var now = Date.now();
+  if (!force && (now - lastTopFetch < 10000)) return;
+  isFetchingTop = true;
+  var icon = document.getElementById('iconRefT');
+  if (icon) icon.classList.add('spinning');
+  try {
+    var r = await fetch('/api/stats/top');
+    var list = await r.json();
+    renderTop(list);
+    lastTopFetch = Date.now();
+  } catch (e) {
+    console.error("Fetch top error:", e);
+  } finally {
+    isFetchingTop = false;
+    if (icon) icon.classList.remove('spinning');
+  }
+}
+
+function renderTop(topList) {
   var tl=document.getElementById('listT');
-  if(!d.top||!d.top.length){tl.innerHTML='<div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">No blocks yet</div>'}
+  if(!topList||!topList.length){tl.innerHTML='<div style="text-align:center;padding:24px 0;color:#64748b;font-size:14px">No blocks yet</div>'}
   else{
-    var mx=d.top[0].c;
-    tl.innerHTML=d.top.map(function(x,i){
+    var mx=topList[0].c;
+    tl.innerHTML=topList.map(function(x,i){
       var cats=x.g||[];
       var firstCat=cats[0]||'ads';
       var style=catMap[firstCat]||{label:'BLK',bg:'rgba(239,68,68,.15)',text:'#ef4444'};
@@ -327,8 +386,34 @@ async function quickWhitelist(domain,el){
   }
 }
 
-async function poll(){try{render(await(await fetch('/api/stats')).json())}catch(e){}}
-poll();setInterval(poll,3000);lucide.createIcons()
+async function poll(){
+  try{
+    var r=await fetch('/api/stats');
+    var d=await r.json();
+    render(d);
+    
+    var totalsChanged = lastTotalCount !== d.total;
+    var blockedChanged = lastBlockedCount !== d.blocked;
+    
+    if (lastTotalCount === -1) {
+      refreshRecent(true);
+      refreshTop(true);
+    } else {
+      if (totalsChanged) {
+        refreshRecent(false);
+      }
+      if (blockedChanged) {
+        refreshTop(false);
+      }
+    }
+    
+    lastTotalCount = d.total;
+    lastBlockedCount = d.blocked;
+  }catch(e){}
+}
+
+poll();setInterval(poll,3000);
+setTimeout(function(){try{lucide.createIcons()}catch(e){}},500);
 </script>
 </body>
 </html>
