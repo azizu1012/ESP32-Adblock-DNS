@@ -41,8 +41,20 @@ class DNSServer:
         "cdn.jsdelivr.net", "unpkg.com", "cdn.tailwindcss.com",
     )
     SAFELIST_SUFFIX = (
-        "mihoyo.com", "hoyoverse.com", "starrails.com", "zenlesszonezero.com", 
-        "cognosphere.com", "yuanshen.com", "kurogames.com"
+        # Mihoyo / Hoyoverse
+        "mihoyo.com", "hoyoverse.com", "starrails.com", "zenlesszonezero.com", "cognosphere.com", "yuanshen.com",
+        # KuroGames
+        "kurogames.com", "kurogame.com",
+        # Arknights (Hypergryph / Yostar)
+        "hypergryph.com", "yostar.com", "hg-cdn.com", "arknights.global",
+        # Steam / Valve
+        "steampowered.com", "steamcommunity.com", "steamgames.com", "valvesoftware.com",
+        # Riot Games (LOL / Valorant)
+        "riotgames.com", "valorant.com",
+        # Epic Games
+        "epicgames.com", "unrealengine.com",
+        # EA / Ubisoft
+        "ea.com", "ubi.com", "ubisoft.com"
     )
     KEYWORDS = (
         "telemetry", "analytics", "adserver", "adsystem",
