@@ -23,11 +23,17 @@ def _fnv1a_64(data):
 def _bloom_search(self, domain):
     """
     Tìm domain trong Blocked Bloom Filter bằng 1 lần đọc Flash 64 bytes.
-    Thay vì load toàn bộ 1.2MB file vào RAM (bất khả thi trên ESP32),
-    hàm này dùng Double Hashing để tính toán block index (chỉ mục khối).
-    Sau đó seek() thẳng đến khối đó và đọc đúng 64 bytes vào buffer cấp sẵn (Zero Allocation).
+    Sử dụng file handle mở sẵn vĩnh viễn (_bloom_file) để tránh overhead
+    mở/đóng file liên tục (tiết kiệm ~200μs mỗi truy vấn).
     """
     try:
+        # Đảm bảo file handle tồn tại (lazy init hoặc recovery sau lỗi)
+        if not self._bloom_file:
+            try:
+                self._bloom_file = open(self.BLOCKED_BIN, "rb")
+            except OSError:
+                return False
+
         # 1. Băm tên miền
         h = _fnv1a_64(domain.encode("utf-8"))
         
@@ -35,11 +41,9 @@ def _bloom_search(self, domain):
         block_idx = (h >> 32) % 18750
         h_low = h & 0xFFFFFFFF
         
-        # 3. Mở file và nhảy (seek) đến đúng vị trí block
-        with open(self.BLOCKED_BIN, "rb") as f:
-            f.seek(block_idx * 64)
-            # Đọc thẳng vào buffer có sẵn để tránh cấp phát RAM động
-            f.readinto(self._bloom_buf)
+        # 3. Seek đến đúng vị trí block và đọc vào buffer có sẵn (Zero Allocation)
+        self._bloom_file.seek(block_idx * 64)
+        self._bloom_file.readinto(self._bloom_buf)
             
         # 4. Kiểm tra 8 bít băm (Kirsch-Mitzenmacher optimization)
         for i in range(8):
@@ -54,7 +58,13 @@ def _bloom_search(self, domain):
         # Nếu tất cả 8 bits = 1, miền này khả năng cao nằm trong danh sách đen
         return True
     except Exception:
-        # An toàn (Fail-safe): Lỗi đọc file thì cho phép qua
+        # Recovery: đóng file handle lỗi để lần sau mở lại
+        try:
+            if self._bloom_file:
+                self._bloom_file.close()
+        except Exception:
+            pass
+        self._bloom_file = None
         return False
 
 def attach(cls):

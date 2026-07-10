@@ -49,7 +49,7 @@ class DNSServer:
         # Spotify
         "spclient.wg.spotify.com", "apresolve.spotify.com",
     )
-    SAFELIST_SUFFIX = (
+    SAFELIST_SUFFIX = frozenset((
         # TikTok / ByteDance
         "tiktok.com", "tiktokv.com", "tiktokcdn.com", "byteoversea.com", "ibytedtos.com", "ibyteimg.com",
         # Shopee & ShopeeFood
@@ -99,8 +99,8 @@ class DNSServer:
         # Office365 / Windows updates (safe suffixes)
         "update.microsoft.com", "windowsupdate.com",
         # Apple iCloud / Updates
-        "icloud.com", "apple-dns.net"
-    )
+        "apple-dns.net"
+    ))
     KEYWORDS = (
         "telemetry", "analytics", "adserver", "adsystem",
         "doubleclick", "adcolony", "applovin", "popunder",
@@ -125,6 +125,7 @@ class DNSServer:
 
         # Bloom Filter Buffer
         self._bloom_buf = bytearray(64)  # Đọc khối 64 bytes từ flash
+        self._bloom_file = None  # File handle mở vĩnh viễn (lazy init)
         
         # Cau truc du lieu cho forwarder khong block (Async DNS proxy)
         self.pending_queries = {}
@@ -298,10 +299,14 @@ class DNSServer:
         if domain in self.SAFELIST or domain in self.custom_safelist:
             return False, None
             
-        # Bỏ qua theo đuôi tĩnh (Game, Dịch vụ đặc thù)
-        for sfx in self.SAFELIST_SUFFIX:
-            if domain.endswith(sfx):
+        # Bỏ qua theo đuôi tĩnh (Game, Dịch vụ đặc thù) - O(1) set lookup thay vì O(n) linear scan
+        if domain in self.SAFELIST_SUFFIX:
+            return False, None
+        dot = domain.find(".")
+        while dot != -1:
+            if domain[dot + 1:] in self.SAFELIST_SUFFIX:
                 return False, None
+            dot = domain.find(".", dot + 1)
 
         # Lớp 2: Dynamic Safelist (GCT tự phục hồi)
         with self.lock:

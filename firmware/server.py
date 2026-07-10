@@ -110,8 +110,9 @@ class WebServer:
 
             idx = buf.find(b"\r\n\r\n")
             header_part = buf[:idx].decode("utf-8")
-            path = header_part.split(" ")[1] if " " in header_part else "/"
-            method = header_part.split(" ")[0] if " " in header_part else "GET"
+            parts = header_part.split(" ", 2)
+            method = parts[0] if parts else "GET"
+            path = parts[1] if len(parts) > 1 else "/"
 
             # Parse If-None-Match va Accept-Encoding headers
             if_none_match = None
@@ -133,10 +134,6 @@ class WebServer:
                 self._handle_post(conn, buf, path, wifi_manager)
             elif path == "/api/stats":
                 self._serve_api_cached(conn, path, lambda: self._build_stats(wifi_manager))
-            elif path == "/api/stats/recent":
-                self._serve_api_cached(conn, path, lambda: self.stats.to_recent_list() if self.stats else [])
-            elif path == "/api/stats/top":
-                self._serve_api_cached(conn, path, lambda: self.stats.to_top_list() if self.stats else [])
             elif path == "/api/ui/version":
                 # Stage 1: Tra ve version cua UI bundle (~30 bytes) de client kiem tra cache
                 try:

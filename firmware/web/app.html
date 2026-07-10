@@ -258,44 +258,13 @@ var isFetchingRecent = false;
 var isFetchingTop = false;
 
 async function refreshRecent(force = false) {
-  if (isFetchingRecent) return;
-  var now = Date.now();
-  if (!force && (now - lastRecentFetch < 10000)) return;
-  isFetchingRecent = true;
-  var icon = document.getElementById('iconRefR');
-  if (icon) icon.classList.add('spinning');
-  try {
-    var r = await fetch('/api/stats/recent');
-    var list = await r.json();
-    rawRecentQueries = list || [];
-    filterRecent();
-    lastRecentFetch = Date.now();
-  } catch (e) {
-    console.error("Fetch recent error:", e);
-  } finally {
-    isFetchingRecent = false;
-    if (icon) icon.classList.remove('spinning');
-  }
+  // Data now comes from merged /api/stats response - no separate fetch needed
+  return;
 }
 
 async function refreshTop(force = false) {
-  if (isFetchingTop) return;
-  var now = Date.now();
-  if (!force && (now - lastTopFetch < 10000)) return;
-  isFetchingTop = true;
-  var icon = document.getElementById('iconRefT');
-  if (icon) icon.classList.add('spinning');
-  try {
-    var r = await fetch('/api/stats/top');
-    var list = await r.json();
-    renderTop(list);
-    lastTopFetch = Date.now();
-  } catch (e) {
-    console.error("Fetch top error:", e);
-  } finally {
-    isFetchingTop = false;
-    if (icon) icon.classList.remove('spinning');
-  }
+  // Data now comes from merged /api/stats response - no separate fetch needed
+  return;
 }
 
 function renderTop(topList) {
@@ -405,23 +374,14 @@ async function poll(){
     var d=await r.json();
     render(d);
     
-    var totalsChanged = lastTotalCount !== d.total;
-    var blockedChanged = lastBlockedCount !== d.blocked;
-    
-    if (lastTotalCount === -1) {
-      refreshRecent(true);
-      refreshTop(true);
-    } else {
-      if (totalsChanged) {
-        refreshRecent(false);
-      }
-      if (blockedChanged) {
-        refreshTop(false);
-      }
+    // Recent + Top data now comes merged in the same response (1 TCP connection instead of 3)
+    if(d.recent){
+      rawRecentQueries = d.recent;
+      filterRecent();
     }
-    
-    lastTotalCount = d.total;
-    lastBlockedCount = d.blocked;
+    if(d.top){
+      renderTop(d.top);
+    }
   }catch(e){}
 }
 

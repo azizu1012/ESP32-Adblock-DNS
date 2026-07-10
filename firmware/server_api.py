@@ -191,6 +191,16 @@ def _build_stats(self, wifi_manager):
         except Exception:
             pass
 
+    # Gộp recent + top vào cùng 1 response để giảm 3 TCP connections -> 1
+    try:
+        d["recent"] = self.stats.to_recent_list() if self.stats else []
+    except Exception:
+        d["recent"] = []
+    try:
+        d["top"] = self.stats.to_top_list() if self.stats else []
+    except Exception:
+        d["top"] = []
+
     return d
 
 def _get_cpu_temp():
