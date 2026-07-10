@@ -26,7 +26,7 @@ def ensure_gzip():
             orig = len(data)
             comp = os.path.getsize(dst)
             print(f"  Compressed {name}: {orig:,} -> {comp:,} bytes ({(1-comp/orig)*100:.0f}% smaller)")
-            compressed.append(name + ".gz")
+        compressed.append(name + ".gz")
     return compressed
 
 try:
