@@ -73,14 +73,12 @@ class WebServer:
                 except Exception as e:
                     print("HTTP serve error:", e)
                 finally:
-                    # Tuyệt kỹ chống cạn kiệt cổng TCP (TIME_WAIT Exhaustion):
-                    # Thay vì chờ client gửi FIN (tốn 50ms) hoặc để socket rơi vào TIME_WAIT (2 phút),
-                    # ta ép ESP32 gửi gói RST (Reset) bằng cách set SO_LINGER = 0.
-                    # Lập tức hủy socket, giải phóng 100% RAM và TCP PCB ngay tắp lự!
+                    # Offload TIME_WAIT to client: wait for client to send FIN first
+                    # Voi ESP32 LwIP, SO_LINGER ko duoc ho tro. Ta phai cho client dong socket truoc (nhan duoc FIN).
+                    # Dat timeout 100ms de vung an toan cao hon, dam bao ESP32 ko bi om TIME_WAIT.
                     try:
-                        import struct
-                        # struct.pack('ii', 1, 0) -> onoff=1, linger=0
-                        conn.setsockopt(socket.SOL_SOCKET, 128, struct.pack('ii', 1, 0)) # 128 is SO_LINGER
+                        conn.settimeout(0.1)
+                        conn.recv(1)
                     except Exception:
                         pass
                     try:
