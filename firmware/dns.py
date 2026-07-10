@@ -50,6 +50,36 @@ class DNSServer:
         "spclient.wg.spotify.com", "apresolve.spotify.com",
     )
     SAFELIST_SUFFIX = (
+        # TikTok / ByteDance
+        "tiktok.com", "tiktokv.com", "tiktokcdn.com", "byteoversea.com", "ibytedtos.com", "ibyteimg.com",
+        # Shopee & ShopeeFood
+        "shopee.vn", "shopee.com", "shopeemobile.com", "shopeesz.com", "susercontent.com", "shopeefood.vn", "foody.vn", "now.vn",
+        # Lazada, Sendo, AliExpress
+        "lazada.vn", "lazcdn.com", "alicdn.com", "lazada.com", "sendo.vn", "senimg.com",
+        # Tiki
+        "tiki.vn", "tikicdn.com", "tiki.com.vn",
+        # Zalo & VN E-wallets / Banks
+        "zalo.me", "zadn.vn", "zaloapp.com", "zalo.vn", "momo.vn", "mservice.io", "mservice.com.vn", "zalopay.vn", "vnpay.vn",
+        # Meta (Facebook/Instagram/Messenger/WhatsApp)
+        "fbcdn.net", "cdninstagram.com", "facebook.com", "instagram.com", "messenger.com", "whatsapp.com", "whatsapp.net",
+        # Google Services & YouTube CDNs (mở rộng ảnh & video)
+        "googlevideo.com", "ytimg.com", "ggpht.com", "googleapis.com", "gstatic.com",
+        # Apple & App Store CDNs
+        "apple.com", "icloud.com", "cdn-apple.com", "mzstatic.com",
+        # Grab, Gojek, Be
+        "grab.com", "grabtaxi.com", "gojek.com", "go-jek.com", "be.com.vn",
+        # Netflix, Spotify, VN Streaming (FPT Play, VieON, ZingMP3, NCT)
+        "netflix.com", "nflximg.net", "nflxvideo.net", "nflxso.net", "nflxext.com", "spotify.com", "scdn.co", "fptplay.vn", "fptplay.net", "vieon.vn", "zingmp3.vn", "zmdcdn.me", "nhaccuatui.com", "nixcdn.com",
+        # X (Twitter), Reddit, Discord, Pinterest
+        "twimg.com", "twitter.com", "x.com", "reddit.com", "redditmedia.com", "redditstatic.com", "discord.com", "discordapp.com", "discordapp.net", "pinimg.com",
+        # Telegram & Viber
+        "telegram.org", "viber.com",
+        # Captcha Services (Chống liệt web khi đăng nhập)
+        "recaptcha.net", "hcaptcha.com",
+        # Roblox
+        "roblox.com", "rbxcdn.com",
+        # Báo chí VN CDNs (VnExpress)
+        "vnecdn.net",
         # Mihoyo / Hoyoverse
         "mihoyo.com", "hoyoverse.com", "starrails.com", "zenlesszonezero.com", "cognosphere.com", "yuanshen.com",
         # KuroGames

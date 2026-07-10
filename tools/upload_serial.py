@@ -98,13 +98,17 @@ def main():
     # Auto-compress HTML trước khi upload
     gz_files = ensure_gzip()
     
-    # Upload các file Python và Web (bao gồm cả .gz)
-    # Gộp chung vào danh sách để tải lên đồng bộ theo chunk
-    web_all = WEB_FILES + gz_files
+    # Chỉ upload file HTML gốc nếu nó CHƯA được nén .gz (tiết kiệm Flash)
+    web_all = [f for f in WEB_FILES if f + ".gz" not in gz_files] + gz_files
     all_files = [(fname, fname, "wb") for fname in FILES] + [("web/" + fname, "web/" + fname, "wb") for fname in web_all]
     
     # Tạo thư mục web trên ESP32 nếu chưa có
     raw_cmd(ser, "import os\ntry:\n    os.mkdir('web')\nexcept:\n    pass")
+    
+    # Dọn dẹp file gốc cũ trên ESP32 để giải phóng Flash (nếu có file .gz tương ứng)
+    for fname in WEB_FILES:
+        if fname + ".gz" in gz_files:
+            raw_cmd(ser, f"try:\n    os.remove('web/{fname}')\nexcept:\n    pass\n")
     
     for display_name, rel_path, mode in all_files:
         # Đường dẫn tuyệt đối trên PC

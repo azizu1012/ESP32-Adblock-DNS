@@ -19,30 +19,36 @@ def _stream_file(conn, path, if_none_match=None, accept_gzip=False):
         pass
     gc.collect()
 
-    # Kiem tra file .gz nen san co ton tai va trinh duyet co ho tro gzip khong
+    # Kiem tra neu ton tai file .gz va client ho tro
     gz_path = path + ".gz"
     use_gzip = False
+    send_path = None
+    stat = None
+
     if accept_gzip:
         try:
-            os.stat(gz_path)
+            stat = os.stat(gz_path)
             use_gzip = True
+            send_path = gz_path
         except OSError:
             pass
 
-    # Stat file goc de tinh ETag (luon dua tren file goc, khong phai file .gz)
-    try:
-        stat = os.stat(path)
-        size = stat[6]
-        mtime = stat[8] if len(stat) > 8 else 0
-    except OSError:
-        conn.sendall(
-            b"HTTP/1.1 404 Not Found\r\nContent-Type:text/plain\r\n"
-            b"Connection:close\r\nContent-Length:13\r\n\r\n404 Not Found"
-        )
-        return
+    # Neu khong the dung gzip hoac file .gz khong ton tai, thu tim file goc
+    if not use_gzip:
+        try:
+            stat = os.stat(path)
+            send_path = path
+        except OSError:
+            conn.sendall(
+                b"HTTP/1.1 404 Not Found\r\nContent-Type:text/plain\r\n"
+                b"Connection:close\r\nContent-Length:13\r\n\r\n404 Not Found"
+            )
+            return
 
-    # ETag dua tren kich thuoc va thoi gian sua doi cua file goc
-    etag = f'"{ size}-{mtime}"'
+    # ETag dua tren kich thuoc va thoi gian sua doi (cua file thuc te se gui: .gz hoac goc)
+    size = stat[6]
+    mtime = stat[8] if len(stat) > 8 else 0
+    etag = f'"{size}-{mtime}"'
 
     # Neu ETag trung khop, tra ve 304 ngay lap tuc
     if if_none_match == etag:
@@ -55,14 +61,7 @@ def _stream_file(conn, path, if_none_match=None, accept_gzip=False):
         conn.sendall(resp.encode())
         return
 
-    # Xac dinh file thuc te se stream (nen hoac goc)
-    if use_gzip:
-        gz_stat = os.stat(gz_path)
-        send_size = gz_stat[6]
-        send_path = gz_path
-    else:
-        send_size = size
-        send_path = path
+    send_size = size
 
     header = (
         "HTTP/1.1 200 OK\r\n"
