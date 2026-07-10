@@ -129,6 +129,17 @@ To survive aggressive concurrent requests (e.g., F5 spamming or multiple open ta
 1. **Byte-level Response Caching**: Heavy endpoints like `/api/stats` generate the JSON exactly once and cache the entire HTTP Response (Header + Body) as raw `bytes` for 1.5 seconds.
 2. **Zero-Allocation Distribution**: If 100 requests arrive within the TTL window, the ESP32 pumps the cached binary buffer directly into the LwIP sockets. This requires zero `json.dumps()` overhead and prevents TCP PCB exhaustion without starving the DNS core.
 
+### Smart Lazy Load 2.0 (TCP Exhaustion Mitigation)
+Traditional `setInterval()` polling in the browser can rapidly exhaust the ESP32's LwIP TCP Protocol Control Blocks (PCBs) if a user leaves a tab open in the background (causing `ERR_CONNECTION_TIMED_OUT` as delayed FIN packets stack up). 
+To prevent this, the UI employs a 4-tier progressive hibernation engine:
+1. **1-to-1 Connection Lock**: Uses recursive `setTimeout` that only fires *after* the previous HTTP request has fully resolved. This mathematically guarantees that a single client IP can only consume a maximum of 1 socket at any given moment.
+2. **Exponential Backoff**: If a network error occurs (e.g., server resets), the polling interval exponentially backs off (3s -> 6s -> 12s -> 24s -> 30s) to prevent client spamming during the ESP32's boot sequence.
+3. **Throttled AFK Detection**: Tracks user mouse/keyboard interaction via a 1s-throttled event listener. 
+   - 0-1 mins AFK: 3s polling.
+   - 1-3 mins AFK: 10s polling.
+   - 3-5 mins AFK: 30s polling.
+4. **Deep Hibernation**: If the tab is hidden (via `visibilitychange`) OR the user is AFK for over 5 minutes, the polling timer is completely destroyed (`clearTimeout`). The browser consumes 0 CPU and the ESP32 is completely freed from UI processing. The UI instantly wakes up and resumes polling the moment the user interacts with the page again.
+
 ---
 
 ## 4. Graduated Consensus Trust (GCT)
