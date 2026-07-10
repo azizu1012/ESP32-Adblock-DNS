@@ -1,30 +1,23 @@
 # Báo Cáo Chi Tiết Thông Số Phần Cứng & Firmware ESP32
 
-*Bản báo cáo này được truy xuất trực tiếp từ phần lõi (Serial REPL) của chip ESP32, cung cấp số liệu thực tế đang chạy trên thiết bị thay vì thông số lý thuyết.*
+*Bản báo cáo này được tổng hợp từ dữ liệu nội soi bằng công cụ cấp thấp `esptool` trực tiếp vào vi mạch (silicon) và thông số từ lõi hệ điều hành MicroPython.*
 
-## 1. Thông Tin Firmware (Hệ Điều Hành)
-- **Hệ điều hành:** MicroPython `v1.28.0`
-- **Ngày biên dịch (Build Date):** 06/04/2026
-- **Lõi Python (Core):** `3.4.0`
-- **Nhận diện phần cứng (Machine):** `Generic ESP32 module with ESP32`
-- **Địa chỉ MAC (Wi-Fi):** `b0:cb:d8:cb:b6:a0`
+## 1. Dữ Liệu Phần Cứng Vật Lý (Hardware Silicon)
+- **Dòng chip (Chip Type):** `ESP32-D0WD-V3 (revision v3.1)` *(Đây là dòng chip lõi kép hiệu năng rất cao, phiên bản V3 đã sửa nhiều lỗi bảo mật và ổn định hơn thế hệ cũ).*
+- **Các tính năng gốc (Features):** Wi-Fi, Bluetooth, Dual Core + LP (Low Power) Core.
+- **Tốc độ tối đa trên phần cứng:** `240 MHz` *(Hiện tại firmware đang hãm lại ở mức 160 MHz để tiết kiệm điện, nhưng có thể bung sức mạnh lên 240 MHz bất cứ lúc nào).*
+- **Thạch anh dao động (Crystal Freq):** `40 MHz`
+- **Địa chỉ MAC gốc (Wi-Fi):** `b0:cb:d8:cb:b6:a0`
 
-## 2. Thông Số CPU & RAM (Garbage Collection Heap)
-- **Tốc độ xung nhịp CPU:** `160 MHz` *(Mức 160MHz giúp chip tiết kiệm điện, toả nhiệt thấp mà vẫn dư sức xử lý mạng. Có thể đẩy lên 240MHz nếu cần).*
-- **Tổng dung lượng RAM cấp phát (Heap):** `~ 151.3 KB` (155,008 Bytes)
-- **RAM đang bị chiếm dụng (Allocated):** `43.7 KB` (44,832 Bytes)
-- **RAM đang trống (Free):** `107.5 KB` (110,176 Bytes)
+## 2. Thông Tin Bộ Nhớ Vật Lý (Flash Memory)
+- **Hãng sản xuất chip nhớ (Manufacturer ID):** `5e`
+- **Tổng dung lượng chip nhớ (Physical Flash Size):** `4 MB` (Đây là dung lượng phần cứng thực tế hàn trên board mạch).
+- **Phân vùng lưu trữ dữ liệu (LittleFS Partition):** `2 MB` *(Phần này được cắt ra từ 4MB ở trên để làm ổ cứng lưu trữ file `blocked.bin` và HTML. Đã dùng 1.3MB, còn dư 720KB để hệ thống xoay xở wear-leveling).*
 
-> [!TIP]
-> **Đánh giá RAM:** Trạng thái bộ nhớ đang **cực kỳ hoàn hảo**. Hệ thống chỉ tiêu tốn 43KB (gần 30%) để gánh toàn bộ server DNS lẫn web. Lượng RAM trống lên tới hơn 100KB là một con số "mơ ước" trên MicroPython, thừa sức chịu tải hàng nghìn truy vấn DNS bùng nổ cùng lúc mà không lo sập hầm (Out-Of-Memory).
-
-## 3. Bộ Nhớ Lưu Trữ (Flash - Phân vùng LittleFS)
-- **Tổng dung lượng phân vùng (Flash Total):** `2 MB` (2,097,152 Bytes)
-- **Dung lượng đã dùng (Flash Used):** `~ 1.3 MB` *(Chứa cỗ máy lọc `blocked.bin` 1.2MB, code Python và giao diện Web)*.
-- **Dung lượng trống (Flash Free):** `720 KB` (737,280 Bytes)
+## 3. Thông Tin Hệ Điều Hành (Firmware & RAM)
+- **Hệ điều hành:** MicroPython `v1.28.0` (Ngày build: 06/04/2026).
+- **Tổng RAM cấp phát (GC Heap):** `~ 151.3 KB`
+- **Tình trạng RAM hiện tại:** Chỉ tiêu tốn `43.7 KB` cho toàn bộ core DNS và Web, còn trống thênh thang `107.5 KB`.
 
 > [!NOTE]
-> **Đánh giá Flash:** Con số này hoàn toàn trùng khớp với mức `720KB free (65% used)` mà bạn đã soi ra lúc nãy. Mức dư 720KB này vô cùng quý giá vì hệ thống file LittleFS rất cần một khoảng không gian trống để "tráo đổi vị trí ghi" (wear-leveling), giúp các ô nhớ Flash không bị chai và kéo dài tuổi thọ của chip lên mức tối đa.
-
-## 4. Kết Luận
-ESP32 của bạn đang chạy phiên bản firmware cực xịn (`v1.28.0`) và cấu trúc tài nguyên đang ở trạng thái **vàng**. Dung lượng Flash được tối ưu sát sao (nhờ việc không nạp file HTML gốc), và RAM được giải phóng liên tục giúp thiết bị có khả năng hoạt động ổn định 24/7.
+> **Đánh giá tổng thể:** Mạch của bạn là phiên bản ESP32 tiêu chuẩn 4MB vô cùng mạnh mẽ, không bị cắt giảm (chip D0WD-V3 lõi kép). Tổng dung lượng bộ nhớ vật lý 4MB hoàn toàn dư dả cho các bản cập nhật Firmware sau này, và 2MB phân vùng lưu trữ đã đáp ứng quá tốt cho danh sách chặn quảng cáo dung lượng lớn.
