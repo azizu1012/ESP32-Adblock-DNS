@@ -56,39 +56,50 @@ def _verify_worker(self):
     """
     Luồng phụ (Background Worker) liên tục lấy domain từ hàng đợi 
     và kiểm chứng bằng cơ chế đồng thuận 3/3 (Consensus Rule 3/3).
+    Tự phục hồi khi gặp lỗi — KHÔNG BAO GIỜ chết vĩnh viễn.
     """
+    import gc
     while True:
-        if not getattr(self, "verify_queue", None):
-            time.sleep(2)
-            continue
+        try:
+            if not getattr(self, "verify_queue", None):
+                time.sleep(2)
+                continue
 
-        domain = None
-        with self.lock:
-            if self.verify_queue:
-                domain = self.verify_queue.pop(0)
-
-        if not domain:
-            continue
-
-        # 1. Ping thử qua Google để chắc chắn domain này có tồn tại thật
-        g_ok = self._dns_query_raw(domain, "8.8.8.8")
-        if not g_ok:
-            continue
-
-        # 2. Ping chéo 3 server chặn quảng cáo (AdGuard, ControlD, Mullvad)
-        adg_ok = self._dns_query_raw(domain, "94.140.14.14")
-        ctd_ok = self._dns_query_raw(domain, "76.76.2.2")
-        mul_ok = self._dns_query_raw(domain, "194.242.2.12")
-
-        # 3. Luật Đồng Thuận 3/3: Cả 3 phải xác nhận SẠCH
-        if adg_ok and ctd_ok and mul_ok:
-            self._heal_domain(domain)
-        else:
-            # Nếu 1 trong 3 phát hiện là quảng cáo, domain sẽ bị đá về Blocked list
+            domain = None
             with self.lock:
-                if domain in self.safelist_dyn:
-                    del self.safelist_dyn[domain]
-                    print(f"[GCT] Re-blocked real ad: {domain}")
+                if self.verify_queue:
+                    domain = self.verify_queue.pop(0)
+
+            if not domain:
+                time.sleep(1)
+                continue
+
+            # 1. Ping thử qua Google để chắc chắn domain này có tồn tại thật
+            g_ok = self._dns_query_raw(domain, "8.8.8.8")
+            if not g_ok:
+                continue
+
+            # 2. Ping chéo 3 server chặn quảng cáo (AdGuard, ControlD, Mullvad)
+            adg_ok = self._dns_query_raw(domain, "94.140.14.14")
+            ctd_ok = self._dns_query_raw(domain, "76.76.2.2")
+            mul_ok = self._dns_query_raw(domain, "194.242.2.12")
+
+            # 3. Luật Đồng Thuận 3/3: Cả 3 phải xác nhận SẠCH
+            if adg_ok and ctd_ok and mul_ok:
+                self._heal_domain(domain)
+            else:
+                # Nếu 1 trong 3 phát hiện là quảng cáo, domain sẽ bị đá về Blocked list
+                with self.lock:
+                    if domain in self.safelist_dyn:
+                        del self.safelist_dyn[domain]
+                        print(f"[GCT] Re-blocked real ad: {domain}")
+        except MemoryError:
+            gc.collect()
+            time.sleep(5)
+        except Exception as e:
+            print("[GCT] Worker error (recovering):", e)
+            gc.collect()
+            time.sleep(5)
 
 def _heal_domain(self, domain):
     """
