@@ -134,7 +134,10 @@ class WebServer:
             elif path == "/api/ui/version":
                 # Stage 1: Tra ve version cua UI bundle (~30 bytes) de client kiem tra cache
                 try:
-                    st = os.stat("web/app.html")
+                    try:
+                        st = os.stat("web/app.html")
+                    except OSError:
+                        st = os.stat("web/app.html.gz")
                     v = f"{st[6]}-{st[8] if len(st) > 8 else 0}"
                 except Exception:
                     v = "0"
