@@ -118,24 +118,51 @@ def main():
         
         while True:
             try:
-                handle_boot_button()
+                # ═══════════════════════════════════════════════
+                # CRITICAL PATH: DNS Forwarding — BẤT KHẢ XÂM PHẠM
+                # Dù mọi thứ khác có cháy, lõi xoay DNS PHẢI sống
+                # ═══════════════════════════════════════════════
                 try:
                     if dns.poll():
-                        blink_off(100) # Tắt hẳn 100ms khi có truy vấn bị chặn
-                except Exception as inner:
-                    print("DNS poll error:", inner)
-                
-                if not wifi.is_connected():
-                    print("WiFi lost, saving stats and rebooting to recover...")
-                    stats.save()
-                    for _ in range(20):
-                        led.value(not led.value())
-                        time.sleep(0.1)
-                    machine.reset()
+                        blink_off(100)
+                except Exception as dns_err:
+                    print("DNS poll error:", dns_err)
 
-                dns.tick(wifi)
-                stats.tick()
-                ddns.tick(cfg)
+                # ═══════════════════════════════════════════════
+                # NON-CRITICAL PATH: Thống kê, DDNS, nút bấm
+                # Crash ở đây KHÔNG ĐƯỢC kéo DNS chết theo
+                # ═══════════════════════════════════════════════
+                try:
+                    handle_boot_button()
+                except Exception:
+                    pass
+
+                try:
+                    if not wifi.is_connected():
+                        print("WiFi lost, saving stats and rebooting...")
+                        stats.save()
+                        for _ in range(20):
+                            led.value(not led.value())
+                            time.sleep(0.1)
+                        machine.reset()
+                except Exception:
+                    pass
+
+                try:
+                    dns.tick(wifi)
+                except Exception as e:
+                    print("DNS tick error:", e)
+
+                try:
+                    stats.tick()
+                except Exception as e:
+                    print("Stats tick error:", e)
+
+                try:
+                    ddns.tick(cfg)
+                except Exception as e:
+                    print("DDNS tick error:", e)
+
                 wdt.feed()
                 gc.collect()
             except MemoryError:
@@ -143,11 +170,10 @@ def main():
                 gc.collect()
                 time.sleep(0.5)
             except Exception as e:
-                import sys
-                sys.print_exception(e)
-                stats.save()
-                time.sleep(3)
-                machine.reset()
+                # KHÔNG reboot! Chỉ log lỗi và tiếp tục chạy DNS
+                print("Main loop non-fatal error:", e)
+                gc.collect()
+                time.sleep(1)
     else:
         # Chỉ vào AP mode khi hoàn toàn không có file cấu hình
         led.value(1)

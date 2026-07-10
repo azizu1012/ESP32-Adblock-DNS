@@ -229,8 +229,8 @@ class Stats:
             self.lock.release()
 
     def tick(self):
-        """Tự động lưu nếu dirty hơn 30 giây."""
-        if self.dirty and time() - self.last_save > 30:
+        """Tự động lưu nếu dirty hơn 5 phút (300s) — giảm 10x flash writes."""
+        if self.dirty and time() - self.last_save > 300:
             self.save()
 
     @staticmethod
