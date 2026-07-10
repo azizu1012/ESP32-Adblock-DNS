@@ -60,6 +60,12 @@ class WebServer:
                 except Exception as e:
                     print("HTTP serve error:", e)
                 finally:
+                    # Offload TIME_WAIT to client: wait for client to send FIN first
+                    try:
+                        conn.settimeout(0.05)
+                        conn.recv(1)
+                    except Exception:
+                        pass
                     try:
                         conn.close()
                     except Exception:
