@@ -75,9 +75,10 @@ class WebServer:
                 finally:
                     # Offload TIME_WAIT to client: wait for client to send FIN first
                     # Voi ESP32 LwIP, SO_LINGER ko duoc ho tro. Ta phai cho client dong socket truoc (nhan duoc FIN).
-                    # Dat timeout 100ms de vung an toan cao hon, dam bao ESP32 ko bi om TIME_WAIT.
+                    # Dat timeout 2.0s (thay vi 0.1s) de chac chan cho duoc goi FIN hoac RST tu trinh duyet khi F5 lien tuc.
+                    # Nho vay ESP32 se ko bao gio chu dong goi close() truoc -> ko bi dinh TIME_WAIT 2 phut!
                     try:
-                        conn.settimeout(0.1)
+                        conn.settimeout(2.0)
                         conn.recv(1)
                     except Exception:
                         pass
