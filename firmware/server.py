@@ -53,6 +53,17 @@ class WebServer:
                     utime.sleep_ms(20)
                     continue
 
+                # 1. Khóa mỏm Web Server (Memory Fence)
+                # Nếu RAM trống còn dưới 20KB, lập tức ngắt kết nối không phục vụ
+                # để nhường toàn bộ RAM còn lại cho lõi DNS chạy mượt mà.
+                if gc.mem_free() < 20480:
+                    print("[WEB] Warning: Free RAM < 20KB. Dropping connection to protect DNS!")
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    continue
+
                 try:
                     # Thiet lap timeout doc Header cuc ngan (200ms) de tránh treo luong khi socket bi client ngat/cham
                     conn.settimeout(0.2)
@@ -102,11 +113,18 @@ class WebServer:
             buf = conn.recv(1024)
             if not buf:
                 return
+            
+            # 2. Giới hạn họng ăn (Payload Cap): Chống spam header làm tràn RAM
+            total_read = len(buf)
             while b"\r\n\r\n" not in buf:
+                if total_read > 2048:
+                    print("[WEB] Blocked: HTTP Header > 2KB (OOM Prevention)")
+                    return
                 chunk = conn.recv(256)
                 if not chunk:
                     break
                 buf += chunk
+                total_read += len(chunk)
 
             idx = buf.find(b"\r\n\r\n")
             header_part = buf[:idx].decode("utf-8")

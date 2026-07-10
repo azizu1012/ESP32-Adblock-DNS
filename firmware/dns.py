@@ -131,6 +131,7 @@ class DNSServer:
         self.pending_queries = {}
         self.tx_counter = 0
         self._is_optimizing = False
+        self.sock_errors = 0  # Theo doi loi cong 53 de tu phuc hoi
 
         # Graduated Consensus Trust (GCT) structures
         self.lock = _thread.allocate_lock()
@@ -199,7 +200,24 @@ class DNSServer:
             # 2. Lấy dữ liệu từ cả 2 nguồn: Client (gửi câu hỏi) và Upstream (trả câu trả lời)
             # Timeout 0.05s để giải phóng vòng lặp chính
             readable, _, _ = select.select([self.sock, self.upstream], [], [], 0.05)
+            self.sock_errors = 0  # Reset bo dem neu socket khoe manh
         except OSError:
+            self.sock_errors += 1
+            if self.sock_errors >= 5:
+                print("[DNS] Critical port 53 failure! Auto-recovering socket...")
+                try:
+                    self.sock.close()
+                except Exception:
+                    pass
+                try:
+                    self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    self.sock.setblocking(False)
+                    self.sock.bind(("0.0.0.0", self.PORT))
+                    self.sock_errors = 0
+                    print("[DNS] Port 53 successfully recreated!")
+                except Exception as e:
+                    print("[DNS] Failed to recover port 53:", e)
             return False
 
         # 3. Nếu không có dữ liệu, thực hiện dọn dẹp rác định kỳ (GC)
@@ -450,6 +468,11 @@ class DNSServer:
                     if domain in self.safelist_dyn:
                         del self.safelist_dyn[domain]
                 self.query_counts[domain] = (0, now_sec)
+
+        # 3. Giới hạn trần cuốn sổ tay (Memory Fence)
+        if len(self.pending_queries) >= 50:
+            print("[DNS] Dropped query: Pending queue full (>50) - Protecting RAM")
+            return
 
         # 3. Lấy Transaction ID gốc của thiết bị (Laptop/Phone) để lưu vết
         client_tx_id = _struct_unpack(">H", request[0:2])[0]
