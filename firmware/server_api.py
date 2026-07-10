@@ -136,7 +136,7 @@ def _parse_body(request):
 def _build_stats(self, wifi_manager):
     """Xay dung dict stats JSON, them cpu_temp va IP."""
     if self.stats is None:
-        d = {"total": 0, "blocked": 0, "allowed": 0, "ratio": 0,
+        d = {"v": "0", "total": 0, "blocked": 0, "allowed": 0, "ratio": 0,
              "uptime": 0, "free_ram": 0, "alloc_ram": 0, "total_ram": 0,
              "last_blocked": "", "recent": [], "cpu_temp": None, "ip": "",
              "top": [], "flash_free": 0, "flash_total": 0, "flash_chip": 0,
@@ -149,6 +149,16 @@ def _build_stats(self, wifi_manager):
                 pass
         return d
     d = self.stats.to_dict()
+    import os
+    try:
+        try:
+            st = os.stat("web/app.html")
+        except OSError:
+            st = os.stat("web/app.html.gz")
+        d["v"] = f"{st[6]}-{st[8] if len(st) > 8 else 0}"
+    except Exception:
+        d["v"] = "0"
+
     d["cpu_temp"] = self._get_cpu_temp()
     d["ip"] = ""
     if wifi_manager and wifi_manager.is_connected():

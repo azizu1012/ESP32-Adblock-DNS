@@ -156,17 +156,6 @@ class WebServer:
                 self._handle_post(conn, buf, path, wifi_manager)
             elif path == "/api/stats":
                 self._serve_api_cached(conn, path, lambda: self._build_stats(wifi_manager))
-            elif path == "/api/ui/version":
-                # Stage 1: Tra ve version cua UI bundle (~30 bytes) de client kiem tra cache
-                try:
-                    try:
-                        st = os.stat("web/app.html")
-                    except OSError:
-                        st = os.stat("web/app.html.gz")
-                    v = f"{st[6]}-{st[8] if len(st) > 8 else 0}"
-                except Exception:
-                    v = "0"
-                self._send_json(conn, {"v": v})
             elif path == "/api/ui":
                 # Stage 2: Stream full UI bundle (chi khi client chua co hoac version cu)
                 self._stream_file(conn, "web/app.html", if_none_match, accept_gzip)

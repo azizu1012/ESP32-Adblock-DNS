@@ -373,6 +373,21 @@ async function poll(){
   try{
     var r=await fetch('/api/stats');
     var d=await r.json();
+    
+    // Auto-update mechanism: Kiem tra phien ban UI (v) gop kem trong AJAX
+    var cv = localStorage.getItem('ui_ver');
+    if (d.v) {
+       if (!cv) {
+           localStorage.setItem('ui_ver', d.v);
+       } else if (cv !== d.v) {
+           // Version changed! Clear cache and reload
+           localStorage.removeItem('ui_app');
+           localStorage.removeItem('ui_ver');
+           location.reload();
+           return;
+       }
+    }
+    
     render(d);
     
     // Recent + Top data now comes merged in the same response (1 TCP connection instead of 3)

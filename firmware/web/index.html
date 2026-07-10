@@ -21,54 +21,32 @@ body{background:#0a0e1a;display:flex;align-items:center;justify-content:center;h
 <p id="msg">Connecting...</p>
 </div>
 <script>
-(async function(){
-  var UI='esp32_ui',VER='esp32_ui_v',msg=document.getElementById('msg');
+var UI='ui_app',VER='ui_ver';
+async function load(){
+  var msg=document.getElementById('msg');
   try{
-    // Stage 1: Kiểm tra version UI từ server
-    msg.textContent='Checking UI version...';
-    var r=await fetch('/api/ui/version');
-    var d=await r.json();
-    var sv=d.v;
-    var cv=null,cu=null;
-    try{cv=localStorage.getItem(VER);cu=localStorage.getItem(UI)}catch(e){}
-
-    if(cu&&cv===sv){
-      // Stage 2 SKIP: UI đã cached đúng version → render ngay
-      msg.textContent='Loading from cache...';
+    var cu=localStorage.getItem(UI);
+    if(cu){
+      // Chế độ Offline-First: Render ngay lập tức từ cache, 0ms delay, 0 TCP connection!
       document.open();document.write(cu);document.close();
       return;
     }
-
-    // Stage 2: Tải UI bundle từ server (chỉ lần đầu hoặc khi UI thay đổi)
+  }catch(e){}
+  
+  // Tải UI bundle từ server (chỉ lần đầu hoặc khi bị clear cache)
+  try{
     msg.textContent='Downloading UI...';
     var u=await fetch('/api/ui');
     var html=await u.text();
-    try{localStorage.setItem(UI,html);localStorage.setItem(VER,sv)}catch(e){}
+    try{localStorage.setItem(UI,html);}catch(e){}
     document.open();document.write(html);document.close();
   }catch(e){
-    // Fallback 1: Neu loi mang hoac bi Web Server chan do het RAM, dung lai ban cu neu co
-    try{
-      var cv2=localStorage.getItem(VER), cu2=localStorage.getItem(UI);
-      if(cv2 && cu2){
-        msg.textContent='Offline cache mode...';
-        document.open();document.write(cu2);document.close();
-        return;
-      }
-    }catch(e2){}
-    
-    // Fallback 2: Thu tai file truc tiep
-    try{
-      msg.textContent='Direct loading...';
-      var f=await fetch('/api/ui');
-      var h=await f.text();
-      document.open();document.write(h);document.close();
-    }catch(e3){
-      document.getElementById('sp').style.display='none';
-      msg.innerHTML='Connection failed.<br><a href="/" style="color:#818cf8">Retry</a>';
-      msg.classList.add('err');
-    }
+    document.getElementById('sp').style.display='none';
+    msg.innerHTML='Connection failed.<br><a href="/" style="color:#818cf8">Retry</a>';
+    msg.classList.add('err');
   }
-})();
+}
+window.onload=load;
 </script>
 </body>
 </html>
