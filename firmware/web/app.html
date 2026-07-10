@@ -369,18 +369,64 @@ async function quickWhitelist(domain,el){
   }
 }
 
+var pollTimer = null;
+var isFetching = false;
+var errorCount = 0;
+var lastActivity = Date.now();
+var throttleTimer = null;
+
+function handleActivity() {
+  if (!throttleTimer) {
+    throttleTimer = setTimeout(function() {
+      var wasHibernating = (Date.now() - lastActivity > 300000); // AFK > 5 phút là đã ngủ đông
+      lastActivity = Date.now();
+      
+      // Nếu đang ngủ đông mà có thao tác chuột -> Đánh thức ngay lập tức!
+      if (wasHibernating && !document.hidden && !isFetching) {
+        errorCount = 0;
+        clearTimeout(pollTimer);
+        poll(); 
+      }
+      throttleTimer = null;
+    }, 1000); // Throttle 1 giây để không ăn CPU
+  }
+}
+['mousemove', 'keydown', 'touchstart', 'scroll'].forEach(function(evt) {
+  document.addEventListener(evt, handleActivity);
+});
+
+document.addEventListener('visibilitychange', function() {
+  if (document.hidden) {
+    clearTimeout(pollTimer); // Ngủ đông hoàn toàn 100%
+  } else {
+    lastActivity = Date.now();
+    errorCount = 0;
+    if (!isFetching) {
+      clearTimeout(pollTimer);
+      poll(); // Thức dậy lập tức
+    }
+  }
+});
+
 async function poll(){
+  clearTimeout(pollTimer);
+  if(document.hidden) return; // Chặn cửa 2 lớp
+  
+  isFetching = true;
+  var delay = 3000;
+  
   try{
-    var r=await fetch('/api/stats');
-    var d=await r.json();
+    var r = await fetch('/api/stats', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    var d = await r.json();
     
-    // Auto-update mechanism: Kiem tra phien ban UI (v) gop kem trong AJAX
+    errorCount = 0; // Thành công -> reset lỗi
+    
     var cv = localStorage.getItem('ui_ver');
     if (d.v) {
        if (!cv) {
            localStorage.setItem('ui_ver', d.v);
        } else if (cv !== d.v) {
-           // Version changed! Clear cache and reload
            localStorage.removeItem('ui_app');
            localStorage.removeItem('ui_ver');
            location.reload();
@@ -390,7 +436,6 @@ async function poll(){
     
     render(d);
     
-    // Recent + Top data now comes merged in the same response (1 TCP connection instead of 3)
     if(d.recent){
       rawRecentQueries = d.recent;
       filterRecent();
@@ -398,10 +443,36 @@ async function poll(){
     if(d.top){
       renderTop(d.top);
     }
-  }catch(e){}
+    
+    // Bậc thang Lazy Load siêu tối ưu
+    var idleMs = Date.now() - lastActivity;
+    if (idleMs > 180000) {
+      delay = 30000; // AFK > 3 phút -> Giảm xuống 30s/lần
+    } else if (idleMs > 60000) {
+      delay = 10000; // AFK > 1 phút -> Giảm xuống 10s/lần
+    }
+    
+  }catch(e){
+    // Exponential Backoff: Nếu sập mạng, tự động lùi thời gian hỏi thăm
+    // 3s -> 6s -> 12s -> 24s -> max 30s
+    errorCount++;
+    delay = Math.min(3000 * Math.pow(2, errorCount - 1), 30000);
+  } finally {
+    isFetching = false;
+    
+    // Nếu AFK quá 5 phút (300,000ms) -> CẮT CẦU DAO LUÔN (Hibernate)
+    // Sẽ không gọi setTimeout nữa. ESP32 được giải phóng 100% tài nguyên!
+    var shouldHibernate = (Date.now() - lastActivity > 300000);
+    
+    if (!document.hidden && !shouldHibernate) {
+      pollTimer = setTimeout(poll, delay);
+    } else if (shouldHibernate) {
+      console.log("Web UI entered deep hibernation due to inactivity.");
+    }
+  }
 }
 
-poll();setInterval(poll,3000);
+poll();
 setTimeout(function(){try{lucide.createIcons()}catch(e){}},500);
 </script>
 </body>
