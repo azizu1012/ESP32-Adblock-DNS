@@ -53,16 +53,18 @@ class WebServer:
                     utime.sleep_ms(20)
                     continue
 
-                # 1. Khóa mỏm Web Server (Memory Fence)
-                # Nếu RAM trống còn dưới 20KB, lập tức ngắt kết nối không phục vụ
-                # để nhường toàn bộ RAM còn lại cho lõi DNS chạy mượt mà.
-                if gc.mem_free() < 20480:
-                    print("[WEB] Warning: Free RAM < 20KB. Dropping connection to protect DNS!")
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-                    continue
+                # 1. Khóa mỏm Web Server (Memory Fence) - Đã tinh chỉnh
+                # Nếu RAM < 15KB, thử dọn rác trước. Nếu vẫn < 10KB thì mới chặn.
+                # Điều này giúp tránh chặn oan khi RAM chỉ đang chứa rác chưa dọn.
+                if gc.mem_free() < 15360:
+                    gc.collect()
+                    if gc.mem_free() < 10240:
+                        print("[WEB] Warning: Free RAM < 10KB. Dropping connection to protect DNS!")
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                        continue
 
                 try:
                     # Thiet lap timeout doc Header cuc ngan (200ms) de tránh treo luong khi socket bi client ngat/cham

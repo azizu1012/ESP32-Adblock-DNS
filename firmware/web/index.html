@@ -45,13 +45,23 @@ body{background:#0a0e1a;display:flex;align-items:center;justify-content:center;h
     try{localStorage.setItem(UI,html);localStorage.setItem(VER,sv)}catch(e){}
     document.open();document.write(html);document.close();
   }catch(e){
-    // Fallback: nếu API lỗi, tải trực tiếp app.html
+    // Fallback 1: Neu loi mang hoac bi Web Server chan do het RAM, dung lai ban cu neu co
+    try{
+      var cv2=localStorage.getItem(VER), cu2=localStorage.getItem(UI);
+      if(cv2 && cu2){
+        msg.textContent='Offline cache mode...';
+        document.open();document.write(cu2);document.close();
+        return;
+      }
+    }catch(e2){}
+    
+    // Fallback 2: Thu tai file truc tiep
     try{
       msg.textContent='Direct loading...';
       var f=await fetch('/api/ui');
       var h=await f.text();
       document.open();document.write(h);document.close();
-    }catch(e2){
+    }catch(e3){
       document.getElementById('sp').style.display='none';
       msg.innerHTML='Connection failed.<br><a href="/" style="color:#818cf8">Retry</a>';
       msg.classList.add('err');
