@@ -39,6 +39,15 @@ class DNSServer:
     SAFELIST = (
         "adwords.google.com", "adidas.com",
         "cdn.jsdelivr.net", "unpkg.com", "cdn.tailwindcss.com",
+        # YouTube history & Google core
+        "s.youtube.com", "video-stats.l.google.com", "clients4.google.com", "clients1.google.com",
+        "android.clients.google.com", "connectivitycheck.gstatic.com",
+        # Windows / MS
+        "msftconnecttest.com", "msftncsi.com",
+        # Apple
+        "captive.apple.com", "gsp1.apple.com",
+        # Spotify
+        "spclient.wg.spotify.com", "apresolve.spotify.com",
     )
     SAFELIST_SUFFIX = (
         # Mihoyo / Hoyoverse
@@ -54,7 +63,13 @@ class DNSServer:
         # Epic Games
         "epicgames.com", "unrealengine.com",
         # EA / Ubisoft
-        "ea.com", "ubi.com", "ubisoft.com"
+        "ea.com", "ubi.com", "ubisoft.com",
+        # Google Mail Images & Play Store
+        "googleusercontent.com", "gvt1.com", "gvt2.com",
+        # Office365 / Windows updates (safe suffixes)
+        "update.microsoft.com", "windowsupdate.com",
+        # Apple iCloud / Updates
+        "icloud.com", "apple-dns.net"
     )
     KEYWORDS = (
         "telemetry", "analytics", "adserver", "adsystem",

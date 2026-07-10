@@ -87,8 +87,17 @@ def main():
     cfg = ConfigManager.load()
     stats = Stats()
 
-    if cfg.get("ssid") and wifi.connect(cfg):
+    has_cfg = bool(cfg.get("ssid"))
 
+    if has_cfg:
+        if not wifi.connect(cfg):
+            print("WiFi failed on boot, but config exists. Rebooting in 5s to retry...")
+            for _ in range(50):
+                led.value(not led.value())
+                time.sleep(0.1)
+            machine.reset()
+
+        # Nếu kết nối thành công:
         dns = DNSServer(stats)
         try:
             dns.optimize_upstream(wifi)
@@ -115,13 +124,15 @@ def main():
                         blink_off(100) # Tắt hẳn 100ms khi có truy vấn bị chặn
                 except Exception as inner:
                     print("DNS poll error:", inner)
+                
                 if not wifi.is_connected():
-                    print("WiFi lost, reconnecting...")
-                    if wifi.connect(cfg):
-                        try:
-                            dns.optimize_upstream(wifi)
-                        except Exception:
-                            pass
+                    print("WiFi lost, saving stats and rebooting to recover...")
+                    stats.save()
+                    for _ in range(20):
+                        led.value(not led.value())
+                        time.sleep(0.1)
+                    machine.reset()
+
                 dns.tick(wifi)
                 stats.tick()
                 ddns.tick(cfg)
@@ -138,6 +149,7 @@ def main():
                 time.sleep(3)
                 machine.reset()
     else:
+        # Chỉ vào AP mode khi hoàn toàn không có file cấu hình
         led.value(1)
         ap_ip = wifi.start_ap()
         web = WebServer(stats, ip=ap_ip)
