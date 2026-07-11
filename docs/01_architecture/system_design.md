@@ -155,11 +155,26 @@ GCT is an automated self-healing layer designed to bypass false positives in ups
 
 ---
 
-## 5. Memory Optimizations
+## 5. Memory Optimizations & Resilience
 
 - **Garbage Collection (GC)**: The MicroPython heap is strictly limited. The web server and DNS proxy manually invoke `gc.collect()` at strategic intervals.
+- **Strict RAM Pruning**: Real-time traffic statistics (`stats.recent` and `stats.top`) are ruthlessly pruned to a maximum length of 30-50 items to guarantee abundant heap space. Compression (e.g., DEFLATE) is intentionally avoided to prevent memory spiking (buffer allocation) and GC thrashing.
+- **WiFi Resilience & Uptime Integrity**: IoT environments suffer from frequent packet loss and momentary WiFi drops. Instead of abruptly rebooting the ESP32 upon WiFi loss, the firmware implements a **60-second Non-Blocking Grace Period**. It patiently waits for the network to self-heal without interrupting the core loop or resetting the device's persistent Uptime metrics.
 - **Streaming Uploads**: The `/api/upload` endpoint streams incoming binary files to LittleFS in 1KB chunks and runs `gc.collect()` every 8KB. This prevents `MemoryError` when uploading the 1.2MB blocklist.
 - **Defensive TCP Accept Loop**: The server implements an outer `try-except` loop to catch `ENOBUFS` or `MemoryError` when clients spam requests. It backs off for 100ms and recovers the socket, preventing background thread death.
+
+---
+
+## 5.5 Hardware UX (LED State Machine)
+
+The ESP32 uses its single onboard blue LED as a non-blocking asynchronous state machine to visually communicate the device's real-time health and network activity to the user without sacrificing CPU performance.
+
+1. **Emergency/Boot (Random Strobe)**: If the core DNS loop crashes or fails to tick for > 3 seconds, or the device is actively booting, the LED strobes randomly like an emergency light. This completely overrides all other behaviors.
+2. **Heartbeat (Lub-Dub)**: A background timer continuously executes a double-pulse heartbeat ("Lub-Dub") every 2-4 seconds. This assures the user the device is alive, even when idle.
+3. **LAN Activity (20ms Pulse)**: Every permitted DNS query instantly interrupts the heartbeat sleep cycle and triggers a rapid 20ms pulse, simulating an Ethernet port activity light.
+4. **Blocked Warning (300ms Dark)**: If a query is blocked by the ad-blocker, the LED immediately powers off for 300ms, providing a distinct visual "kill" feedback.
+
+This state machine operates concurrently via `utime.ticks_ms()`, meaning the heartbeat and LAN activity happen perfectly in parallel without the need for strict idle-time periods.
 
 ---
 

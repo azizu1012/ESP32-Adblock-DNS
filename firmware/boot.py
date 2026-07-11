@@ -7,6 +7,7 @@ Boot sequence:
 4. Thất bại: bật chế độ AP để cấu hình
 """
 import time
+import utime
 import gc
 import machine
 from machine import Pin, Timer, WDT
@@ -20,42 +21,78 @@ from ddns import DDNSUpdater
 
 led = Pin(2, Pin.OUT)
 boot_btn = Pin(0, Pin.IN, Pin.PULL_UP)
-led_timer = Timer(0)
+# Biến toàn cục theo dõi sức khoẻ DNS (Watchdog)
+dns_last_tick = 0
 
-
-def led_on(t):
-    """Bật LED — callback timer."""
-    led.value(1)
-
-
-def blink_off(duration=150):
-    """Tắt LED trong `duration` ms, dùng timer one-shot rồi bật lại."""
-    led.value(0)
-    led_timer.init(period=duration, mode=Timer.ONE_SHOT, callback=led_on)
-
-
-def led_heartbeat_thread():
-    """Nhịp tim sinh học kép (Lub-Dub) chạy ngầm trên luồng riêng, không nghẽn luồng chính."""
+def led_state_thread(stats):
+    """Đèn LED thông minh 3 lớp đồng thời:
+    1. Cấp cứu (Dead/Booting): Chớp ngẫu nhiên liên tục (Ghi đè tất cả)
+    2. LAN Activity (Allowed/Blocked): Chớp phản hồi ngay lập tức
+    3. Nhịp tim (Lub-Dub): Đập định kỳ 2-4s dưới nền (không cần chờ Idle)"""
     import random
+    import utime
+    
+    last_total = stats.total
+    last_blocked = stats.blocked
+    next_heartbeat = utime.ticks_ms() + 2000
+    
     while True:
         try:
-            # Nhịp nghỉ ngẫu nhiên 4-7 giây làm thiết bị sinh động
-            time.sleep(random.randint(4, 7))
+            now = utime.ticks_ms()
             
-            # Nhịp 1 (Lub): tắt nhanh 50ms rồi bật lại
-            led.value(0)
-            time.sleep(0.05)
+            # 1. Trạng thái cấp cứu (Booting hoặc DNS treo > 3s)
+            if dns_last_tick == 0 or utime.ticks_diff(now, dns_last_tick) > 3000:
+                led.value(0)
+                utime.sleep_ms(random.randint(20, 80))
+                led.value(1)
+                utime.sleep_ms(random.randint(20, 80))
+                next_heartbeat = utime.ticks_ms() + 2000 # Reset timer
+                continue
+                
+            current_total = stats.total
+            current_blocked = stats.blocked
+            
+            # 2. Xử lý Traffic (LAN Activity / Blocked) ngay lập tức
+            if current_total > last_total:
+                if current_blocked > last_blocked:
+                    # Bị chặn -> Sập nguồn 300ms
+                    led.value(0)
+                    utime.sleep_ms(300)
+                    led.value(1)
+                else:
+                    # Chạy qua -> Chớp LAN 20ms
+                    diff = min(3, current_total - last_total)
+                    for _ in range(diff):
+                        led.value(0)
+                        utime.sleep_ms(20)
+                        led.value(1)
+                        utime.sleep_ms(80)
+                        
+                last_total = current_total
+                last_blocked = current_blocked
+                continue
+                
+            # 3. Trạng thái nhịp tim (Lub-Dub Heartbeat) định kỳ
+            if utime.ticks_diff(now, next_heartbeat) >= 0:
+                # Lub
+                led.value(0); utime.sleep_ms(50); led.value(1)
+                utime.sleep_ms(120)
+                # Dub
+                led.value(0); utime.sleep_ms(50); led.value(1)
+                
+                next_heartbeat = utime.ticks_ms() + random.randint(2000, 4000)
+                continue
+                
+            # 4. Chờ (Polling rate 50ms cho LED)
             led.value(1)
+            utime.sleep_ms(50)
             
-            # Giãn cách 120ms
-            time.sleep(0.12)
-            
-            # Nhịp 2 (Dub): tắt nhanh 50ms rồi bật lại mặc định
-            led.value(0)
-            time.sleep(0.05)
-            led.value(1)
         except Exception:
-            pass
+            try:
+                import utime
+                utime.sleep_ms(1000)
+            except:
+                pass
 
 
 def handle_boot_button():
@@ -110,11 +147,13 @@ def main():
         print("System ready!")
         led.value(1) # LED luôn sáng mặc định
         
-        # Khởi chạy luồng nhịp tim ngầm độc lập
-        _thread.start_new_thread(led_heartbeat_thread, ())
+        # Khởi chạy LED UX Monitor liên kết chặt chẽ với DNS Stats
+        _thread.start_new_thread(led_state_thread, (stats,))
 
         wdt = WDT(timeout=30_000)
         ddns = DDNSUpdater()
+        
+        wifi_lost_ticks = 0
         
         while True:
             try:
@@ -123,8 +162,9 @@ def main():
                 # Dù mọi thứ khác có cháy, lõi xoay DNS PHẢI sống
                 # ═══════════════════════════════════════════════
                 try:
-                    if dns.poll():
-                        blink_off(100)
+                    global dns_last_tick
+                    dns_last_tick = utime.ticks_ms()
+                    dns.poll()
                 except Exception as dns_err:
                     print("DNS poll error:", dns_err)
 
@@ -139,12 +179,15 @@ def main():
 
                 try:
                     if not wifi.is_connected():
-                        print("WiFi lost, saving stats and rebooting...")
-                        stats.save()
-                        for _ in range(20):
-                            led.value(not led.value())
-                            time.sleep(0.1)
-                        machine.reset()
+                        if wifi_lost_ticks == 0:
+                            wifi_lost_ticks = utime.ticks_ms()
+                        elif utime.ticks_diff(utime.ticks_ms(), wifi_lost_ticks) > 60000:
+                            # Mất mạng liên tục quá 60 giây -> Restart để gỡ lỗi WiFi
+                            print("WiFi lost for > 60s, saving stats and rebooting...")
+                            stats.save()
+                            machine.reset()
+                    else:
+                        wifi_lost_ticks = 0
                 except Exception:
                     pass
 

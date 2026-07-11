@@ -111,8 +111,8 @@ class Stats:
             if is_blocked:
                 self.blocked += 1
                 if domain not in self.top:
-                    # Prevent OOM from random domain spam
-                    if len(self.top) >= 200:
+                    # Prevent OOM from random domain spam (capped at 50)
+                    if len(self.top) >= 50:
                         min_k = min(self.top, key=lambda k: self.top[k]["c"])
                         del self.top[min_k]
                     self.top[domain] = {"c": 0, "s": layer, "d": self._today}
@@ -131,8 +131,9 @@ class Stats:
                     oldest_ip = min(self.client_ips, key=self.client_ips.get)
                     del self.client_ips[oldest_ip]
             self.recent.append((domain, is_blocked, layer, time(), client_ip))
-            if len(self.recent) > 200:
-                self.recent = self.recent[-100:]
+            # Giam limit self.recent xuong 50 de tiet kiem TOI DA RAM cho Web Server
+            if len(self.recent) > 50:
+                self.recent = self.recent[-30:]
         finally:
             self.lock.release()
 
