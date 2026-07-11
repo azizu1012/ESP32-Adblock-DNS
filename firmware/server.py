@@ -73,10 +73,10 @@ class WebServer:
                 except Exception as e:
                     print("HTTP serve error:", e)
                 finally:
-                    # 1. Chờ tối đa 0.5s để đảm bảo browser nhận xong file và gửi FIN
-                    # Điều này ngăn việc gửi RST cắt đứt data giữa chừng.
+                    # 1. Chờ tối đa 0.05s để đảm bảo browser nhận xong file và gửi FIN
+                    # Điều này ngăn việc gửi RST cắt đứt data giữa chừng, nhưng không block luồng quá lâu.
                     try:
-                        conn.settimeout(0.5)
+                        conn.settimeout(0.05)
                         conn.recv(1)
                     except Exception:
                         pass
@@ -128,10 +128,13 @@ class WebServer:
             # 2. Giới hạn họng ăn (Payload Cap): Chống spam header làm tràn RAM
             total_read = len(buf)
             while b"\r\n\r\n" not in buf:
-                if total_read > 2048:
-                    print("[WEB] Blocked: HTTP Header > 2KB (OOM Prevention)")
+                if total_read > 4096:
+                    print("[WEB] Blocked: HTTP Header > 4KB (OOM Prevention)")
                     return
-                chunk = conn.recv(256)
+                try:
+                    chunk = conn.recv(256)
+                except Exception:
+                    break
                 if not chunk:
                     break
                 buf += chunk
