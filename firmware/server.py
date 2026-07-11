@@ -66,26 +66,31 @@ class WebServer:
                             pass
                         continue
 
+                is_timeout = False
                 try:
                     # Thiet lap timeout doc Header cuc ngan (200ms) de tránh treo luong khi socket bi client ngat/cham
                     conn.settimeout(0.2)
                     self._handle(conn, wifi_manager)
+                except OSError as e:
+                    if "110" in str(e) or "ETIMEDOUT" in str(e):
+                        is_timeout = True
+                    print("HTTP serve error:", e)
                 except Exception as e:
                     print("HTTP serve error:", e)
                 finally:
-                    # 1. Chờ tối đa 0.05s để đảm bảo browser nhận xong file và gửi FIN
-                    # Điều này ngăn việc gửi RST cắt đứt data giữa chừng, nhưng không block luồng quá lâu.
-                    try:
-                        conn.settimeout(0.05)
-                        conn.recv(1)
-                    except Exception:
-                        pass
+                    # 1. Chi cho FIN neu request thanh cong. Neu timeout (pre-connect), close ngay de xoa backlog.
+                    if not is_timeout:
+                        try:
+                            conn.settimeout(0.5)
+                            conn.recv(1)
+                        except Exception:
+                            pass
                         
                     # 2. Xóa sổ socket bằng SO_LINGER=0 (TCP RST)
-                    # Chống kẹt TIME_WAIT 2 phút làm sập LwIP (hết khe cắm mạng).
+                    # Sư dung gia tri nguyen thuy cua LwIP (SOL_SOCKET=4095, SO_LINGER=128) vi MicroPython co the thieu attribute.
                     try:
                         import struct
-                        conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
+                        conn.setsockopt(4095, 128, struct.pack('ii', 1, 0))
                     except Exception:
                         pass
                     try:
