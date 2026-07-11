@@ -73,13 +73,19 @@ class WebServer:
                 except Exception as e:
                     print("HTTP serve error:", e)
                 finally:
-                    # Offload TIME_WAIT to client: wait for client to send FIN first
-                    # Voi ESP32 LwIP, SO_LINGER ko duoc ho tro. Ta phai cho client dong socket truoc (nhan duoc FIN).
-                    # Dat timeout 2.0s (thay vi 0.1s) de chac chan cho duoc goi FIN hoac RST tu trinh duyet khi F5 lien tuc.
-                    # Nho vay ESP32 se ko bao gio chu dong goi close() truoc -> ko bi dinh TIME_WAIT 2 phut!
+                    # 1. Chờ tối đa 0.5s để đảm bảo browser nhận xong file và gửi FIN
+                    # Điều này ngăn việc gửi RST cắt đứt data giữa chừng.
                     try:
-                        conn.settimeout(2.0)
+                        conn.settimeout(0.5)
                         conn.recv(1)
+                    except Exception:
+                        pass
+                        
+                    # 2. Xóa sổ socket bằng SO_LINGER=0 (TCP RST)
+                    # Chống kẹt TIME_WAIT 2 phút làm sập LwIP (hết khe cắm mạng).
+                    try:
+                        import struct
+                        conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
                     except Exception:
                         pass
                     try:
@@ -135,7 +141,8 @@ class WebServer:
             header_part = buf[:idx].decode("utf-8")
             parts = header_part.split(" ", 2)
             method = parts[0] if parts else "GET"
-            path = parts[1] if len(parts) > 1 else "/"
+            raw_path = parts[1] if len(parts) > 1 else "/"
+            path = raw_path.split("?", 1)[0]
 
             # Parse If-None-Match va Accept-Encoding headers
             if_none_match = None

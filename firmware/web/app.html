@@ -416,7 +416,9 @@ async function poll(){
   var delay = 3000;
   
   try{
-    var r = await fetch('/api/stats', { cache: 'no-store' });
+    // Thêm Date.now() làm tham số ảo (Cache-Buster) để chống lại bộ đệm hung hãn của Safari/iOS
+    // Đồng thời giúp lách qua các extension chặn quảng cáo nhận diện nhầm URL '/api/stats'
+    var r = await fetch('/api/stats?_t=' + Date.now(), { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP '+r.status);
     var d = await r.json();
     
