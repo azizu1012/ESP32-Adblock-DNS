@@ -108,7 +108,7 @@ class WebServer:
             self._rate_limit = (now, 0)
         
         rl_time, rl_count = self._rate_limit
-        if now - rl_time > 1.0:
+        if now - rl_time > 1.0 or now < rl_time:
             self._rate_limit = (now, 1)
         else:
             if rl_count > 15:

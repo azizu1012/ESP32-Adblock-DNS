@@ -16,6 +16,14 @@ class WiFiManager:
         """Bật WiFi STA interface."""
         self.wlan = network.WLAN(network.STA_IF)
         self.wlan.active(True)
+        try:
+            # Vô hiệu hoá Power Management (Modem Sleep) để chống rớt mạng khi idle lâu
+            self.wlan.config(pm=0xa11140)
+        except Exception:
+            try:
+                self.wlan.config(pm=0)
+            except Exception:
+                pass
 
     @staticmethod
     def set_hostname(name="esp32-adblocker"):

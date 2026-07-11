@@ -382,8 +382,9 @@ function handleActivity() {
       lastActivity = Date.now();
       
       // Nếu đang ngủ đông mà có thao tác chuột -> Đánh thức ngay lập tức!
-      if (wasHibernating && !document.hidden && !isFetching) {
+      if (wasHibernating && !document.hidden) {
         errorCount = 0;
+        isFetching = false;
         clearTimeout(pollTimer);
         poll(); 
       }
@@ -399,8 +400,12 @@ document.addEventListener('visibilitychange', function() {
   if (document.hidden) {
     clearTimeout(pollTimer); // Ngủ đông hoàn toàn 100%
   } else {
+    var wasHibernating = (Date.now() - lastActivity > 300000);
     lastActivity = Date.now();
     errorCount = 0;
+    if (wasHibernating) {
+      isFetching = false;
+    }
     if (!isFetching) {
       clearTimeout(pollTimer);
       poll(); // Thức dậy lập tức
@@ -414,11 +419,15 @@ async function poll(){
   
   isFetching = true;
   var delay = 3000;
+  var fetchTimer = null;
   
   try{
+    var controller = new AbortController();
+    fetchTimer = setTimeout(function() { controller.abort(); }, 5000);
     // Thêm Date.now() làm tham số ảo (Cache-Buster) để chống lại bộ đệm hung hãn của Safari/iOS
     // Đồng thời giúp lách qua các extension chặn quảng cáo nhận diện nhầm URL '/api/stats'
-    var r = await fetch('/api/stats?_t=' + Date.now(), { cache: 'no-store' });
+    var r = await fetch('/api/stats?_t=' + Date.now(), { cache: 'no-store', signal: controller.signal });
+    clearTimeout(fetchTimer);
     if (!r.ok) throw new Error('HTTP '+r.status);
     var d = await r.json();
     
@@ -460,6 +469,7 @@ async function poll(){
     errorCount++;
     delay = Math.min(3000 * Math.pow(2, errorCount - 1), 30000);
   } finally {
+    if (fetchTimer) clearTimeout(fetchTimer);
     isFetching = false;
     
     // Nếu AFK quá 5 phút (300,000ms) -> CẮT CẦU DAO LUÔN (Hibernate)
