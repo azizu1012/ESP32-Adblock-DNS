@@ -550,6 +550,12 @@ class DNSServer:
             return
         self._last_clean_ticks = now
         
+        # Don dep GCT leak moi 5 phut (300000ms)
+        last_gct = getattr(self, "_last_gct_clean", 0)
+        if _ticks_diff(now, last_gct) > 300000:
+            self._cleanup_gct()
+            self._last_gct_clean = now
+        
         todel = []
         # Tìm các truy vấn kẹt quá 2 giây
         for tx_id, info in self.pending_queries.items():
@@ -570,6 +576,27 @@ class DNSServer:
                 self.optimize_upstream()
             except Exception:
                 pass
+
+    def _cleanup_gct(self):
+        """Don dep cac domain da het han khoi safelist_dyn va query_counts de chong tran RAM."""
+        now_sec = time.time()
+        expired = []
+        with self.lock:
+            for domain, val in self.safelist_dyn.items():
+                expiry, _, _ = val
+                # Xoa neu da het han hon 1 phut (an toan)
+                if now_sec > expiry + 60:
+                    expired.append(domain)
+            for d in expired:
+                del self.safelist_dyn[d]
+                
+        # Don query_counts: Chi giu lai nhung domain con nam trong safelist_dyn
+        to_del_qc = []
+        for d in self.query_counts:
+            if d not in self.safelist_dyn:
+                to_del_qc.append(d)
+        for d in to_del_qc:
+            del self.query_counts[d]
 
 # Load external modules and attach them to DNSServer
 try:

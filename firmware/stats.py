@@ -91,6 +91,8 @@ class Stats:
         self.total = 0
         self.blocked = 0
         self.start_ticks = ticks_ms()
+        self.uptime_ms = 0
+        self.last_uptime_ticks = self.start_ticks
         self.last_blocked = ""
         self.recent = []
         self.top = {}
@@ -150,7 +152,7 @@ class Stats:
     @property
     def uptime(self):
         try:
-            return max(0, int(ticks_diff(ticks_ms(), self.start_ticks) // 1000))
+            return max(0, int(self.uptime_ms // 1000))
         except Exception:
             return 0
 
@@ -231,6 +233,16 @@ class Stats:
 
     def tick(self):
         """Tự động lưu nếu dirty hơn 5 phút (300s) — giảm 10x flash writes."""
+        # Cap nhat uptime de tranh overflow sau 12 ngay
+        try:
+            now = ticks_ms()
+            diff = ticks_diff(now, self.last_uptime_ticks)
+            if diff > 0:
+                self.uptime_ms += diff
+            self.last_uptime_ticks = now
+        except Exception:
+            pass
+
         if self.dirty and time() - self.last_save > 300:
             self.save()
 
