@@ -2,10 +2,13 @@
 #include <stdio.h>
 #include <string.h>
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 static const char *TAG = "BloomFilter";
 
 static FILE *s_bloom_file = NULL;
+static SemaphoreHandle_t s_bloom_mutex = NULL;
 
 // FNV-1a 64-bit hash function
 static uint64_t fnv1a_64(const char* data) {
@@ -19,6 +22,9 @@ static uint64_t fnv1a_64(const char* data) {
 }
 
 bool bloom_filter_init(const char* filepath) {
+    if (s_bloom_mutex == NULL) {
+        s_bloom_mutex = xSemaphoreCreateMutex();
+    }
     if (s_bloom_file != NULL) return true;
 
     s_bloom_file = fopen(filepath, "rb");
@@ -53,10 +59,15 @@ void bloom_filter_deinit(void) {
         fclose(s_bloom_file);
         s_bloom_file = NULL;
     }
+    if (s_bloom_mutex != NULL) {
+        vSemaphoreDelete(s_bloom_mutex);
+        s_bloom_mutex = NULL;
+    }
 }
 
+
 bool bloom_filter_check(const char* domain) {
-    if (s_bloom_file == NULL) return false;
+    if (s_bloom_file == NULL || s_bloom_mutex == NULL) return false;
 
     // 1. Băm tên miền
     uint64_t h = fnv1a_64(domain);
@@ -67,8 +78,10 @@ bool bloom_filter_check(const char* domain) {
     
     // Đọc chính xác 64 byte của block đó (Giống hệt Python f.seek)
     uint8_t block[64];
+    xSemaphoreTake(s_bloom_mutex, portMAX_DELAY);
     fseek(s_bloom_file, block_idx * 64, SEEK_SET);
     fread(block, 1, 64, s_bloom_file);
+    xSemaphoreGive(s_bloom_mutex);
     
     // 3. Kiểm tra 8 bít băm (Kirsch-Mitzenmacher optimization)
     for (int i = 0; i < 8; i++) {
@@ -87,20 +100,21 @@ bool bloom_filter_check(const char* domain) {
 }
 
 uint32_t bloom_filter_get_count(void) {
-    if (s_bloom_file == NULL) return 0;
+    if (s_bloom_file == NULL || s_bloom_mutex == NULL) return 0;
     
+    xSemaphoreTake(s_bloom_mutex, portMAX_DELAY);
     // Đọc 4 byte cuối file (little-endian uint32) - giống hệt Python struct.unpack("<I")
     fseek(s_bloom_file, 0, SEEK_END);
     long size = ftell(s_bloom_file);
+    uint32_t count = 0;
     if (size >= 4) {
         fseek(s_bloom_file, size - 4, SEEK_SET);
+        fread(&count, 4, 1, s_bloom_file);
     }
-    
-    uint32_t count = 0;
-    fread(&count, 4, 1, s_bloom_file);
     
     // Đưa con trỏ về đầu file để an toàn cho các tác vụ khác (dù mmap có thể không bị ảnh hưởng)
     fseek(s_bloom_file, 0, SEEK_SET);
+    xSemaphoreGive(s_bloom_mutex);
     
     return count;
 }

@@ -285,7 +285,9 @@ static void dns_server_task(void *pvParameters) {
                             buffer[1] = proxy_tx_id & 0xFF;
                             
                             // Cập nhật Dynamic Upstream (Optimizer tráo đổi)
-                            inet_pton(AF_INET, g_upstream_ip, &upstream_addr.sin_addr);
+                            char active_ip[16];
+                            dns_optimizer_get_upstream(active_ip, NULL);
+                            inet_pton(AF_INET, active_ip, &upstream_addr.sin_addr);
                             sendto(up_sock, buffer, len, 0, (struct sockaddr *)&upstream_addr, sizeof(upstream_addr));
                             
                             proxy_tx_id = (proxy_tx_id + 1) & 0x0F;

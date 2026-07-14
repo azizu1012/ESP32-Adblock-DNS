@@ -52,7 +52,6 @@ extern "C" void app_main(void)
     // 2. Cấu hình WiFi và DNS Manager
     stats_init();
     dns_server_start();
-    dns_optimizer_init();
     web_server_start();
 
     // Vòng lặp chính

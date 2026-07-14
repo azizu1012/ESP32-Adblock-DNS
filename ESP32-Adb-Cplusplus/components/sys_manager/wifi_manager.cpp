@@ -1,4 +1,5 @@
 #include "sys_manager.h"
+extern "C" void dns_optimizer_set_upstream(const char* ip, int rtt);
 #include <esp_wifi.h>
 #include <esp_event.h>
 #include <esp_log.h>
@@ -7,8 +8,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include <cJSON.h>
-
-extern "C" char g_upstream_ip[16];
 
 static const char *TAG = "WiFi_Manager";
 static bool is_ap_mode = false;
@@ -162,8 +161,8 @@ void wifi_manager_init(void) {
                     }
                 }
                 if (upstream && cJSON_IsString(upstream) && strlen(upstream->valuestring) < 16 && strlen(upstream->valuestring) > 0) {
-                    strcpy(g_upstream_ip, upstream->valuestring);
-                    ESP_LOGI(TAG, "Đã set Upstream DNS từ config: %s", g_upstream_ip);
+                    dns_optimizer_set_upstream(upstream->valuestring, 15);
+                    ESP_LOGI(TAG, "Đã set Upstream DNS từ config: %s", upstream->valuestring);
                 }
                 cJSON_Delete(root);
             }

@@ -16,8 +16,7 @@
 
 extern "C" uint8_t temprature_sens_read();
 
-extern char g_upstream_ip[16];
-extern int g_upstream_rtt;
+extern "C" void dns_optimizer_get_upstream(char* out_ip, int* out_rtt);
 extern "C" uint32_t bloom_filter_get_count(void);
 
 #include <string>
@@ -60,6 +59,21 @@ static std::unordered_set<std::string> custom_safelist;
 
 // Timestamp for periodic stats saving
 static uint64_t last_save_time_us = 0;
+
+static void prune_top_domains() {
+    if (top_domains.size() < 100) return;
+    std::vector<std::pair<std::string, uint32_t>> top_vec(top_domains.begin(), top_domains.end());
+    std::sort(top_vec.begin(), top_vec.end(), 
+        [](const std::pair<std::string, uint32_t>& a, const std::pair<std::string, uint32_t>& b) {
+            return a.second > b.second;
+        });
+    top_domains.clear();
+    int limit = (top_vec.size() > 50) ? 50 : top_vec.size();
+    for (int i = 0; i < limit; i++) {
+        top_domains[top_vec[i].first] = top_vec[i].second;
+    }
+}
+
 
 static void load_persistent_stats() {
     FILE* f = fopen("/spiffs/stats.json", "r");
@@ -218,6 +232,7 @@ void stats_record_query(const char* domain, bool is_blocked, const char* client_
     // Add to top domains (if blocked)
     if (is_blocked) {
         top_domains[domain]++;
+        prune_top_domains();
     }
 
     // Track client IP
@@ -306,8 +321,11 @@ char* stats_get_json_response(void) {
     cJSON_AddNumberToObject(root, "flash_chip", 0);
 
     // Networking
-    cJSON_AddStringToObject(root, "upstream", g_upstream_ip);
-    cJSON_AddNumberToObject(root, "upstream_rtt", g_upstream_rtt);
+    char active_ip[16];
+    int active_rtt = 0;
+    dns_optimizer_get_upstream(active_ip, &active_rtt);
+    cJSON_AddStringToObject(root, "upstream", active_ip);
+    cJSON_AddNumberToObject(root, "upstream_rtt", active_rtt);
     
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (netif) {

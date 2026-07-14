@@ -12,6 +12,28 @@ static const char *TAG = "DNS_Optimizer";
 
 char g_upstream_ip[16] = "1.1.1.1";
 int g_upstream_rtt = 15;
+static SemaphoreHandle_t s_upstream_mutex = NULL;
+
+void dns_optimizer_get_upstream(char* out_ip, int* out_rtt) {
+    if (s_upstream_mutex == NULL) {
+        s_upstream_mutex = xSemaphoreCreateMutex();
+    }
+    xSemaphoreTake(s_upstream_mutex, portMAX_DELAY);
+    strcpy(out_ip, g_upstream_ip);
+    if (out_rtt) *out_rtt = g_upstream_rtt;
+    xSemaphoreGive(s_upstream_mutex);
+}
+
+void dns_optimizer_set_upstream(const char* ip, int rtt) {
+    if (s_upstream_mutex == NULL) {
+        s_upstream_mutex = xSemaphoreCreateMutex();
+    }
+    xSemaphoreTake(s_upstream_mutex, portMAX_DELAY);
+    strcpy(g_upstream_ip, ip);
+    g_upstream_rtt = rtt;
+    xSemaphoreGive(s_upstream_mutex);
+}
+
 
 static int measure_rtt(const char* ip) {
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
@@ -94,9 +116,8 @@ static void optimize_task(void *pvParameter) {
         
         if (best_rtt < 999999) {
             ESP_LOGI(TAG, "Chọn DNS nhanh nhất: %s (%d ms)", best_ip, best_rtt);
-            // Atomic Swap (Zero-Downtime)
-            strcpy(g_upstream_ip, best_ip);
-            g_upstream_rtt = best_rtt;
+            // Thread-Safe Swap (Zero-Downtime)
+            dns_optimizer_set_upstream(best_ip, best_rtt);
         }
         
         // Chờ 5 phút rồi quét lại
@@ -105,6 +126,9 @@ static void optimize_task(void *pvParameter) {
 }
 
 void dns_optimizer_init(void) {
+    if (s_upstream_mutex == NULL) {
+        s_upstream_mutex = xSemaphoreCreateMutex();
+    }
     // Đo vòng đầu tiên lúc khởi động luôn, sau đó mới vào vòng lặp chờ
     xTaskCreatePinnedToCore(optimize_task, "dns_opt_task", 3072, NULL, 2, NULL, tskNO_AFFINITY);
 }
