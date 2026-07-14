@@ -1,10 +1,25 @@
-__pycache__/
-*.pyc
-.venv/
+# ============================
+# CẤU HÌNH GLOBAL (CHUNG)
+# ============================
 .vscode/
-tests/__pycache__/
-data/
-*.log
 .codegraph/
 AGENTS.md
-firmware/web/*.gz
+*.log
+
+# ============================
+# ESP32-Adb-Python (MicroPython)
+# ============================
+.venv/
+__pycache__/
+*.pyc
+ESP32-Adb-Python/firmware/web/*.gz
+
+# ============================
+# ESP32-Adb-Cplusplus (ESP-IDF)
+# ============================
+ESP32-Adb-Cplusplus/build/
+ESP32-Adb-Cplusplus/.espressif/
+ESP32-Adb-Cplusplus/managed_components/
+ESP32-Adb-Cplusplus/dependencies.lock
+ESP32-Adb-Cplusplus/sdkconfig
+ESP32-Adb-Cplusplus/sdkconfig.old
