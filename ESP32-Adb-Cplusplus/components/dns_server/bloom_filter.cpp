@@ -90,8 +90,17 @@ uint32_t bloom_filter_get_count(void) {
     if (s_bloom_file == NULL) return 0;
     
     // Đọc 4 byte cuối file (little-endian uint32) - giống hệt Python struct.unpack("<I")
-    fseek(s_bloom_file, -4, SEEK_END);
+    fseek(s_bloom_file, 0, SEEK_END);
+    long size = ftell(s_bloom_file);
+    if (size >= 4) {
+        fseek(s_bloom_file, size - 4, SEEK_SET);
+    }
+    
     uint32_t count = 0;
     fread(&count, 4, 1, s_bloom_file);
+    
+    // Đưa con trỏ về đầu file để an toàn cho các tác vụ khác (dù mmap có thể không bị ảnh hưởng)
+    fseek(s_bloom_file, 0, SEEK_SET);
+    
     return count;
 }
