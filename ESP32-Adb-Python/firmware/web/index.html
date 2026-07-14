@@ -27,35 +27,38 @@ async function load(){
   var cu=localStorage.getItem(UI);
   var cv=localStorage.getItem(VER);
 
+  // STAGE 1: Render ngay lập tức từ Cache (Offline-First)
   if(cu){
-    // 1. Render ngay lập tức từ cache, 0ms delay!
     document.open();document.write(cu);document.close();
     
-    // 2. Chạy ngầm kiểm tra phiên bản (version check)
+    // STAGE 2: Chạy ngầm kiểm tra phiên bản qua /api/status
     try {
-      var res = await fetch('/api/ui', {method: 'HEAD'});
-      var etag = res.headers.get('ETag');
-      if (etag && etag !== cv) {
-        // UI đã có bản mới -> Tải nền và lưu
+      var res = await fetch('/api/status');
+      var data = await res.json();
+      if (data.v && data.v !== cv) {
+        // STAGE 3: UI đã có bản mới -> Tải nền và lưu
         var u = await fetch('/api/ui');
         var html = await u.text();
         localStorage.setItem(UI, html);
-        localStorage.setItem(VER, etag);
-        // Tải xong không reload ngay để tránh gián đoạn, người dùng F5 sẽ thấy
+        localStorage.setItem(VER, data.v);
       }
     } catch(e) {}
     return;
   }
   
-  // Tải UI bundle từ server (chỉ lần đầu)
+  // Lần đầu tải (Hoặc Tab Ẩn Danh)
   try{
+    msg.textContent='Checking version...';
+    var st = await fetch('/api/status');
+    var stData = await st.json();
+    var serverVer = stData.v || 'unknown';
+
     msg.textContent='Downloading UI...';
     var u=await fetch('/api/ui');
-    var etag=u.headers.get('ETag');
     var html=await u.text();
     try{
       localStorage.setItem(UI,html);
-      if(etag) localStorage.setItem(VER,etag);
+      localStorage.setItem(VER,serverVer);
     }catch(e){}
     document.open();document.write(html);document.close();
   }catch(e){
