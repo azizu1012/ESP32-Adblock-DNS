@@ -249,14 +249,25 @@ void stats_record_query(const char* domain, bool is_blocked, const char* client_
     xSemaphoreGive(stats_mutex);
 }
 
+static char* cached_json_str = NULL;
+static uint64_t last_cache_time_us = 0;
+
 char* stats_get_json_response(void) {
     if (!stats_mutex) return strdup("{}");
 
-    // Clean up active clients older than 10 minutes (600,000,000 us)
     uint64_t now_us = esp_timer_get_time();
-    uint64_t cutoff_us = (now_us > 600000000ULL) ? (now_us - 600000000ULL) : 0;
-
+    
     xSemaphoreTake(stats_mutex, portMAX_DELAY);
+
+    // Byte-level caching: 1.5 seconds TTL
+    if (cached_json_str && (now_us - last_cache_time_us < 1500000ULL)) {
+        char* ret_str = strdup(cached_json_str);
+        xSemaphoreGive(stats_mutex);
+        return ret_str;
+    }
+
+    // Clean up active clients older than 10 minutes (600,000,000 us)
+    uint64_t cutoff_us = (now_us > 600000000ULL) ? (now_us - 600000000ULL) : 0;
 
     int client_count = 0;
     for (auto it = active_clients.begin(); it != active_clients.end(); ) {
@@ -408,6 +419,13 @@ char* stats_get_json_response(void) {
 
     char *json_str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
+
+    xSemaphoreTake(stats_mutex, portMAX_DELAY);
+    if (cached_json_str) free(cached_json_str);
+    cached_json_str = strdup(json_str);
+    last_cache_time_us = esp_timer_get_time();
+    xSemaphoreGive(stats_mutex);
+
     return json_str;
 }
 

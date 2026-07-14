@@ -120,13 +120,20 @@ static esp_err_t api_upload_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
-    char buf[4096];
+    char* buf = (char*)malloc(4096);
+    if (!buf) {
+        fclose(fd);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+        return ESP_FAIL;
+    }
+    
     int ret, remaining = req->content_len;
     
     // Đọc từng Chunk 4KB thay vì đọc cả cục 1.2MB vào RAM
     while (remaining > 0) {
-        if ((ret = httpd_req_recv(req, buf, MIN(remaining, sizeof(buf)))) <= 0) {
+        if ((ret = httpd_req_recv(req, buf, MIN(remaining, 4096))) <= 0) {
             if (ret == HTTPD_SOCK_ERR_TIMEOUT) continue;
+            free(buf);
             fclose(fd);
             return ESP_FAIL;
         }
@@ -134,6 +141,7 @@ static esp_err_t api_upload_handler(httpd_req_t *req) {
         fwrite(buf, 1, ret, fd);
         remaining -= ret;
     }
+    free(buf);
     fclose(fd);
     
     httpd_resp_sendstr(req, "{\"status\":\"ok\"}");

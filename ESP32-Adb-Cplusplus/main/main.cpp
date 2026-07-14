@@ -29,6 +29,37 @@ static void init_spiffs(void) {
     }
 }
 
+static void log_reset_reason(void) {
+    esp_reset_reason_t reason = esp_reset_reason();
+    const char* reason_str = "UNKNOWN";
+    bool is_crash = false;
+
+    switch (reason) {
+        case ESP_RST_POWERON: reason_str = "Power-on Reset"; break;
+        case ESP_RST_EXT: reason_str = "External Pin Reset"; break;
+        case ESP_RST_SW: reason_str = "Software Reset"; break;
+        case ESP_RST_PANIC: reason_str = "Software Exception / Panic"; is_crash = true; break;
+        case ESP_RST_INT_WDT: reason_str = "Interrupt Watchdog Timeout"; is_crash = true; break;
+        case ESP_RST_TASK_WDT: reason_str = "Task Watchdog Timeout"; is_crash = true; break;
+        case ESP_RST_WDT: reason_str = "Other Watchdog"; is_crash = true; break;
+        case ESP_RST_DEEPSLEEP: reason_str = "Deep Sleep Wakeup"; break;
+        case ESP_RST_BROWNOUT: reason_str = "Brownout (Voltage Drop)"; is_crash = true; break;
+        case ESP_RST_SDIO: reason_str = "SDIO Reset"; break;
+        default: reason_str = "Other / Unknown"; break;
+    }
+
+    ESP_LOGI(TAG, "Reset Reason: %s", reason_str);
+
+    // Save to crash.log if it's an unexpected crash
+    if (is_crash) {
+        FILE* f = fopen("/spiffs/crash.log", "a");
+        if (f) {
+            fprintf(f, "CRASH DETECTED: %s\n", reason_str);
+            fclose(f);
+        }
+    }
+}
+
 extern "C" void app_main(void)
 {
     // Initialize NVS
@@ -41,6 +72,7 @@ extern "C" void app_main(void)
 
     // Khởi tạo ổ cứng để chuẩn bị đọc file web
     init_spiffs();
+    log_reset_reason();
 
     ESP_LOGI(TAG, "C++ DNS AdBlocker is starting...");
     ESP_LOGI(TAG, "CPU Core: %d", esp_cpu_get_core_id());
