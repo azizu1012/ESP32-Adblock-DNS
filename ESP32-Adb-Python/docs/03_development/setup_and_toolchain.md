@@ -28,7 +28,8 @@
 ├── tools/
 │   ├── process_blocked.py       Compile blocklists into Bloom Filter bin
 │   ├── generate_blocked_bin.ps1 Automated download, compilation, and WiFi push
-│   └── upload_serial.py         Optimized serial Python code uploader
+│   ├── upload_serial.py         Optimized serial Python code uploader
+│   └── compress_ui.py           Compress UI bundle for 3-Stage loader
 ├── tests/
 │   └── test_core.py             15 unit tests
 └── docs/
@@ -64,6 +65,9 @@ A Python script that acts as the core compiler. It reads the raw text blocklists
 
 ### 3. `upload_serial.py` (Firmware Uploader & Optimizer)
 A Python script that deploys the codebase to the ESP32 via serial (USB). It safely stops the running DNS script via raw REPL, automatically compresses HTML files (like `app.html`) into `.gz` format to save 75% flash space, and transfers files in safe 512-byte chunks to avoid UART buffer overflows. After the transfer, it automatically resets the ESP32.
+
+### 4. `compress_ui.py` (UI Compression Utility)
+A small Python utility that explicitly compresses the `app.html` frontend bundle into `app.html.gz`. In the C++ environment, `spiffsgen.py` doesn't automatically compress files, so this script must be run to update the GZIP bundle before flashing SPIFFS. This ensures the 3-stage UI loader continues to fetch the lightweight GZIP bundle, triggering the automatic browser reload.
 
 ## Regenerating blocked.bin
 
