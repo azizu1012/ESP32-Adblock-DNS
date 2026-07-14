@@ -172,7 +172,13 @@ char* stats_get_json_response(void) {
     cJSON *root = cJSON_CreateObject();
     
     // Core stats
-    cJSON_AddStringToObject(root, "v", "2.0-C++");
+    char version_str[64] = "2.0-C++";
+    struct stat st;
+    if (stat("/spiffs/app.html.gz", &st) == 0) {
+        snprintf(version_str, sizeof(version_str), "%ld-%lld", (long)st.st_size, (long long)st.st_mtime);
+    }
+    cJSON_AddStringToObject(root, "v", version_str);
+    
     cJSON_AddNumberToObject(root, "total", total_queries);
     cJSON_AddNumberToObject(root, "blocked", blocked_queries);
     cJSON_AddNumberToObject(root, "allowed", allowed_queries);
