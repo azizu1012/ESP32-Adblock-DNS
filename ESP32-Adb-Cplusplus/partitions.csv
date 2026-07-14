@@ -1,5 +1,5 @@
 # Tên,   Loại, SubType, Offset, Kích thước, Cờ
 nvs,      data, nvs,     ,        16K,
 phy_init, data, phy,     ,        4K,
-factory,  app,  factory, ,        1500K,
-spiffs,   data, spiffs,  ,        1500K,
+factory,  app,  factory, ,        1100K,
+spiffs,   data, spiffs,  ,        1900K,
