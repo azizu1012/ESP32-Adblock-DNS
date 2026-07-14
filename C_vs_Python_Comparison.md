@@ -72,6 +72,19 @@ Thuật toán lõi của dự án yêu cầu tra cứu một danh sách đen (Bl
 
 ---
 
+## 6. Tính Ổn Định & Chống Chịu (Resilience & Stability)
+
+### MicroPython (Dễ Tổn Thương)
+- Giao diện Web thường xuyên làm cạn kiệt RAM (MemoryError) khi sinh ra chuỗi JSON quá lớn.
+- Không có cơ chế lưu vết lỗi (Crash Logging), mỗi khi mạch bị khởi động lại do Watchdog hay tràn RAM, lập trình viên không thể truy vết được nguyên nhân gốc rễ.
+
+### C++ / ESP-IDF (Bất Tử & Theo Dõi Tận Gốc)
+- **Bảo vệ Stack (Stack Protection)**: Web Server chạy trên FreeRTOS có giới hạn Stack (8KB). Mọi thao tác xử lý file lớn (như upload `blocked.bin` 1.2MB) đều được cấp phát an toàn trên Heap bằng lệnh `malloc`, ngăn chặn triệt để lỗi *Stack smashing protect failure*.
+- **Cache Nhị Phân (Byte-level Caching)**: Các API nặng (`/api/stats`) không dùng thư viện cJSON để build cây mới liên tục mỗi khi bị trình duyệt spam F5. Thay vào đó, chuỗi JSON được cache lại trực tiếp dạng mảng byte trong 1.5 giây, giúp ESP32 chịu được hàng trăm request/giây mà không suy suyển RAM.
+- **Hộp Đen (Crash Logger)**: Mọi trường hợp sập nguồn bất thường (Software Panic, Watchdog Timeout, Brownout do sụt áp) đều bị hàm `esp_reset_reason()` tóm gọn ngay khi boot và lưu thẳng vào ổ cứng `/spiffs/crash.log`. Tính năng này cung cấp bằng chứng chính xác "cái gì (What)" đã gây ra lỗi thay vì phải đoán mò.
+
+---
+
 ## TỔNG KẾT (Tại Sao Lại Chuyển Đổi?)
 
 Bước đệm **MicroPython** là một khoản đầu tư vô cùng chính xác. Nó giúp tiết kiệm hàng tuần lễ vật lộn với logic C++ để chứng minh rằng: *Thuật toán chặn DNS bằng Bloom Filter và Web-UI bằng React hoàn toàn khả thi trên ESP32.*
