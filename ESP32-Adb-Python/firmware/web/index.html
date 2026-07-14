@@ -24,42 +24,21 @@ body{background:#0a0e1a;display:flex;align-items:center;justify-content:center;h
 var UI='ui_app',VER='ui_ver';
 async function load(){
   var msg=document.getElementById('msg');
-  var cu=localStorage.getItem(UI);
-  var cv=localStorage.getItem(VER);
-
-  // STAGE 1: Render ngay lập tức từ Cache (Offline-First)
-  if(cu){
-    document.open();document.write(cu);document.close();
-    
-    // STAGE 2: Chạy ngầm kiểm tra phiên bản qua /api/status
-    try {
-      var res = await fetch('/api/status');
-      var data = await res.json();
-      if (data.v && data.v !== cv) {
-        // STAGE 3: UI đã có bản mới -> Tải nền và lưu
-        var u = await fetch('/api/ui');
-        var html = await u.text();
-        localStorage.setItem(UI, html);
-        localStorage.setItem(VER, data.v);
-      }
-    } catch(e) {}
-    return;
-  }
-  
-  // Lần đầu tải (Hoặc Tab Ẩn Danh)
   try{
-    msg.textContent='Checking version...';
-    var st = await fetch('/api/status');
-    var stData = await st.json();
-    var serverVer = stData.v || 'unknown';
-
+    var cu=localStorage.getItem(UI);
+    if(cu){
+      // Chế độ Offline-First: Render ngay lập tức từ cache, 0ms delay, 0 TCP connection!
+      document.open();document.write(cu);document.close();
+      return;
+    }
+  }catch(e){}
+  
+  // Tải UI bundle từ server (chỉ lần đầu hoặc khi bị clear cache)
+  try{
     msg.textContent='Downloading UI...';
     var u=await fetch('/api/ui');
     var html=await u.text();
-    try{
-      localStorage.setItem(UI,html);
-      localStorage.setItem(VER,serverVer);
-    }catch(e){}
+    try{localStorage.setItem(UI,html);}catch(e){}
     document.open();document.write(html);document.close();
   }catch(e){
     document.getElementById('sp').style.display='none';
