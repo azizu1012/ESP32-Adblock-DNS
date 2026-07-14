@@ -54,18 +54,26 @@ static esp_err_t serve_file_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
-    char chunk[1024];
+    char *chunk = (char *)malloc(1024);
+    if (!chunk) {
+        fclose(fd);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory error");
+        return ESP_FAIL;
+    }
+
     size_t chunksize;
     do {
-        chunksize = fread(chunk, 1, sizeof(chunk), fd);
+        chunksize = fread(chunk, 1, 1024, fd);
         if (chunksize > 0) {
             if (httpd_resp_send_chunk(req, chunk, chunksize) != ESP_OK) {
+                free(chunk);
                 fclose(fd);
                 return ESP_FAIL;
             }
         }
     } while (chunksize != 0);
 
+    free(chunk);
     fclose(fd);
     httpd_resp_send_chunk(req, NULL, 0);
     return ESP_OK;
