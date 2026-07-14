@@ -58,6 +58,82 @@ static std::unordered_map<std::string, uint64_t> active_clients;
 // Custom Safelist: persistent safelist managed by user
 static std::unordered_set<std::string> custom_safelist;
 
+// Timestamp for periodic stats saving
+static uint64_t last_save_time_us = 0;
+
+static void load_persistent_stats() {
+    FILE* f = fopen("/spiffs/stats.json", "r");
+    if (!f) return;
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    if (size > 0 && size < 65536) {
+        char* buf = (char*)malloc(size + 1);
+        if (buf) {
+            fread(buf, 1, size, f);
+            buf[size] = '\0';
+            cJSON* root = cJSON_Parse(buf);
+            if (root) {
+                cJSON* tot = cJSON_GetObjectItem(root, "total");
+                if (tot) total_queries = tot->valueint;
+                
+                cJSON* blk = cJSON_GetObjectItem(root, "blocked");
+                if (blk) blocked_queries = blk->valueint;
+                
+                cJSON* alw = cJSON_GetObjectItem(root, "allowed");
+                if (alw) allowed_queries = alw->valueint;
+
+                cJSON* top = cJSON_GetObjectItem(root, "top_domains");
+                if (top && cJSON_IsArray(top)) {
+                    int count = cJSON_GetArraySize(top);
+                    for (int i = 0; i < count; i++) {
+                        cJSON* item = cJSON_GetArrayItem(top, i);
+                        cJSON* d = cJSON_GetObjectItem(item, "d");
+                        cJSON* c = cJSON_GetObjectItem(item, "c");
+                        if (d && c && cJSON_IsString(d) && cJSON_IsNumber(c)) {
+                            top_domains[d->valuestring] = c->valueint;
+                        }
+                    }
+                }
+                cJSON_Delete(root);
+            }
+            free(buf);
+        }
+    }
+    fclose(f);
+    ESP_LOGI(TAG, "Loaded persistent stats from SPIFFS");
+}
+
+static void save_persistent_stats() {
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "total", total_queries);
+    cJSON_AddNumberToObject(root, "blocked", blocked_queries);
+    cJSON_AddNumberToObject(root, "allowed", allowed_queries);
+
+    cJSON* top_arr = cJSON_CreateArray();
+    for (const auto& kv : top_domains) {
+        cJSON* item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "d", kv.first.c_str());
+        cJSON_AddNumberToObject(item, "c", kv.second);
+        cJSON_AddItemToArray(top_arr, item);
+    }
+    cJSON_AddItemToObject(root, "top_domains", top_arr);
+
+    char* json_str = cJSON_PrintUnformatted(root);
+    if (json_str) {
+        FILE* f = fopen("/spiffs/stats.json", "w");
+        if (f) {
+            fwrite(json_str, 1, strlen(json_str), f);
+            fclose(f);
+        }
+        free(json_str);
+    }
+    cJSON_Delete(root);
+    ESP_LOGI(TAG, "Saved persistent stats to SPIFFS");
+}
+
 static void load_custom_safelist() {
     FILE* f = fopen("/spiffs/safelist.json", "r");
     if (!f) return;
@@ -109,6 +185,7 @@ void stats_init(void) {
     stats_mutex = xSemaphoreCreateMutex();
     recent_queries.reserve(MAX_RECENT);
     load_custom_safelist();
+    load_persistent_stats();
 }
 
 void stats_record_query(const char* domain, bool is_blocked, const char* client_ip) {
@@ -146,6 +223,12 @@ void stats_record_query(const char* domain, bool is_blocked, const char* client_
     // Track client IP
     if (client_ip && strlen(client_ip) > 0) {
         active_clients[client_ip] = esp_timer_get_time();
+    }
+
+    // Save stats periodically (every 5 minutes = 300,000,000 us)
+    if (now_us - last_save_time_us > 300000000ULL) {
+        save_persistent_stats();
+        last_save_time_us = now_us;
     }
 
     xSemaphoreGive(stats_mutex);
