@@ -12,6 +12,8 @@
 // No GCT included
 // No GCT included
 
+#include <sys/stat.h>
+
 extern "C" uint8_t temprature_sens_read();
 
 extern char g_upstream_ip[16];
