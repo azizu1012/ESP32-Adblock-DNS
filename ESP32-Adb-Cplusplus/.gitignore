@@ -1,0 +1,6 @@
+build/
+.espressif/
+managed_components/
+dependencies.lock
+sdkconfig
+sdkconfig.old
