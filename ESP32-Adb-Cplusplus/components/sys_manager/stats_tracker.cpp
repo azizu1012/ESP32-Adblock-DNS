@@ -187,10 +187,11 @@ char* stats_get_json_response(void) {
     cJSON_AddNumberToObject(root, "blocklist_entries", bloom_filter_get_count());
 
     // RAM & System
-    uint32_t free_ram = esp_get_free_heap_size();
+    uint32_t free_ram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    uint32_t total_ram = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
     cJSON_AddNumberToObject(root, "free_ram", free_ram);
-    cJSON_AddNumberToObject(root, "alloc_ram", 327680 - free_ram); // Approx
-    cJSON_AddNumberToObject(root, "total_ram", 327680); // 320KB default
+    cJSON_AddNumberToObject(root, "alloc_ram", total_ram - free_ram);
+    cJSON_AddNumberToObject(root, "total_ram", total_ram);
     
     // CPU Temperature (ESP32 ROM function returns Fahrenheit)
     // Use integer math to avoid IEEE 754 float precision artifacts
