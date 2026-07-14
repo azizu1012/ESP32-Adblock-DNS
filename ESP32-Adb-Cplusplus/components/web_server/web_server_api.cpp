@@ -8,6 +8,7 @@
 #include <cJSON.h>
 #include "esp_timer.h"
 #include "stats_tracker.h"
+#include "sys_manager.h"
 
 static const char *TAG = "Web_API";
 
@@ -148,7 +149,9 @@ static esp_err_t api_reboot_handler(httpd_req_t *req) {
 
 static esp_err_t api_config_reset_handler(httpd_req_t *req) {
     if (is_rate_limited()) return ESP_FAIL;
+    wifi_config_lock();
     remove("/spiffs/config.json");
+    wifi_config_unlock();
     httpd_resp_sendstr(req, "{\"ok\":true,\"message\":\"Reset. Rebooting...\"}");
     vTaskDelay(1000 / portTICK_PERIOD_MS);
     esp_restart();
@@ -158,6 +161,7 @@ static esp_err_t api_config_reset_handler(httpd_req_t *req) {
 static esp_err_t api_config_dhcp_handler(httpd_req_t *req) {
     if (is_rate_limited()) return ESP_FAIL;
     
+    wifi_config_lock();
     FILE* f = fopen("/spiffs/config.json", "r");
     if (f) {
         fseek(f, 0, SEEK_END);
@@ -190,6 +194,7 @@ static esp_err_t api_config_dhcp_handler(httpd_req_t *req) {
         }
         fclose(f);
     }
+    wifi_config_unlock();
     
     httpd_resp_sendstr(req, "{\"ok\":true,\"message\":\"DHCP mode. Rebooting...\"}");
     vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -216,6 +221,7 @@ static esp_err_t api_config_wifi_handler(httpd_req_t *req) {
 
     cJSON* config_json = cJSON_CreateObject();
     
+    wifi_config_lock();
     FILE* f = fopen("/spiffs/config.json", "r");
     if (f) {
         fseek(f, 0, SEEK_END);
@@ -258,6 +264,7 @@ static esp_err_t api_config_wifi_handler(httpd_req_t *req) {
         }
         free(json_str);
     }
+    wifi_config_unlock();
 
     cJSON_Delete(config_json);
     cJSON_Delete(req_json);

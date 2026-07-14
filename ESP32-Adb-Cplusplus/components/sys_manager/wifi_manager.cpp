@@ -7,12 +7,23 @@ extern "C" void dns_optimizer_set_upstream(const char* ip, int rtt);
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/semphr.h"
 #include <cJSON.h>
+#include <atomic>
 
 static const char *TAG = "WiFi_Manager";
-static bool is_ap_mode = false;
-static bool is_connected = false;
+static std::atomic<bool> is_ap_mode{false};
+static std::atomic<bool> is_connected{false};
 static int s_retry_num = 0;
+static SemaphoreHandle_t s_wifi_config_mutex = NULL;
+
+extern "C" void wifi_config_lock(void) {
+    if (s_wifi_config_mutex) xSemaphoreTake(s_wifi_config_mutex, portMAX_DELAY);
+}
+
+extern "C" void wifi_config_unlock(void) {
+    if (s_wifi_config_mutex) xSemaphoreGive(s_wifi_config_mutex);
+}
 
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
@@ -30,6 +41,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "Đã kết nối WiFi thành công! IP: " IPSTR, IP2STR(&event->ip_info.ip));
         
+        wifi_config_lock();
         // Auto-assign .234 logic (Giống Python)
         FILE* f = fopen("/spiffs/config.json", "r");
         bool has_static_ip = false;
@@ -91,9 +103,12 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
                 free(new_json);
             }
             cJSON_Delete(root);
+            wifi_config_unlock();
             
             vTaskDelay(1000 / portTICK_PERIOD_MS);
             esp_restart();
+        } else {
+            wifi_config_unlock();
         }
 
         is_connected = true;
@@ -106,6 +121,9 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
 }
 
 void wifi_manager_init(void) {
+    if (s_wifi_config_mutex == NULL) {
+        s_wifi_config_mutex = xSemaphoreCreateMutex();
+    }
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     
@@ -120,6 +138,7 @@ void wifi_manager_init(void) {
 
     wifi_config_t wifi_config = {};
     
+    wifi_config_lock();
     FILE* f = fopen("/spiffs/config.json", "r");
     if (f) {
         fseek(f, 0, SEEK_END);
@@ -182,6 +201,7 @@ void wifi_manager_init(void) {
             ESP_LOGI(TAG, "Đã tạo file /spiffs/config.json mới với WiFi mặc định");
         }
     }
+    wifi_config_unlock();
 
     // Luôn luôn khởi động ở chế độ APSTA (Vừa phát WiFi, vừa thu WiFi)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
@@ -204,5 +224,5 @@ void wifi_manager_init(void) {
     ESP_ERROR_CHECK(esp_wifi_start());
 }
 
-bool wifi_is_ap_mode(void) { return is_ap_mode; }
-bool wifi_is_connected(void) { return is_connected; }
+bool wifi_is_ap_mode(void) { return is_ap_mode.load(); }
+bool wifi_is_connected(void) { return is_connected.load(); }
