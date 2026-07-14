@@ -200,32 +200,20 @@ When any of the Triad triggers fire, the ESP32 executes the DNS optimization usi
 
 ---
 
-## 7. Codebase Modularization (Monkey Patching)
+## 7. Codebase Modularization (ESP-IDF Components)
 
-To maintain a clean and maintainable codebase without incurring memory penalties on the ESP32, the firmware utilizes a unique **Direct Modularization** pattern via Monkey Patching. 
+Unlike the Python version which relied on Monkey Patching to avoid deep inheritance overhead, the C++ architecture utilizes the standard **ESP-IDF Component** pattern:
 
-```C++
-# In dns_bloom.py
-def attach(cls):
-    cls._get_bloom_bit = _get_bloom_bit
-    cls.is_blocked_bloom = is_blocked_bloom
-
-# In dns_server.cpp
-import dns_bloom
-dns_bloom.attach(DNSServer)
-```
-
-- **Avoids God Files**: Large classes like `DNSServer` and `WebServer` are split into multiple smaller files (`dns_bloom.py`, `dns_gct.py`, `server_api.py`, etc.).
-- **Zero RAM Overhead**: Instead of using deep object-oriented inheritance (which creates large RAM footprints per instance), the `attach()` method binds functions directly to the main class namespace at compile time. 
-- **Preserves `self` Context**: Functions act seamlessly as native methods, preserving full access to `self` state like `self.lock` or `self.stats`.
+- **Strict Separation**: Logic is cleanly divided into separate libraries (`dns_server`, `web_server`, `sys_manager`).
+- **Shared State**: The `sys_manager` acts as the central state hub, exposing extern variables and thread-safe APIs (like `stats_tracker.cpp`) that other components can link against.
+- **CMake Integration**: Each component manages its own `CMakeLists.txt`, ensuring that only necessary dependencies are compiled and linked, reducing the final binary size and simplifying maintenance.
 
 ---
 
-## 8. Micro-Optimizations (Global-to-Local Binding)
+## 8. Micro-Optimizations (Native C++ Performance)
 
-Because MicroC++ interprets code on a relatively slow microcontroller (160MHz - 240MHz), dictionary lookups in tight loops (like the `poll()` function that runs thousands of times per second) can degrade performance.
+Because the codebase is now compiled directly to Xtensa machine code, many of the Python-era workarounds (like Global-to-Local variable bindings or manual Garbage Collection) are no longer necessary.
 
-To squeeze maximum performance out of the ESP32 without changing logic:
-1. **Tick Lookups**: Functions like `time.ticks_ms` or `struct.unpack` require two dictionary lookups (first finding `time` in globals, then `ticks_ms` in `time`'s attributes).
-2. **Local Caching**: The firmware binds these frequently used global functions to module-level local variables (`_ticks_ms = time.ticks_ms`). 
-3. **Result**: This Global-to-Local binding yields a measurable ~15-20% speedup inside the `poll()` execution path, allowing the DNS server to handle higher concurrent QPS (Queries Per Second) without saturating the CPU.
+1. **Zero Garbage Collection**: C++ uses deterministic memory management. By aggressively utilizing stack variables (like the `uint8_t buffer[64]` for Bloom Filter checks) and avoiding `new`/`malloc` in the main loop, memory fragmentation is virtually eliminated.
+2. **mmap and SPIFFS**: The 1.2MB Bloom Filter is loaded via `fopen` and `fread` directly from SPIFFS flash without ever pulling the entire file into RAM. This ensures that the massive blocklist consumes `0 bytes` of the precious 320KB internal heap.
+3. **Atomic Operations**: Core metrics like DNS query counts are incremented safely across dual cores using FreeRTOS Mutexes (`xSemaphoreTake`), guaranteeing data integrity without the overhead of Python's Global Interpreter Lock (GIL).
