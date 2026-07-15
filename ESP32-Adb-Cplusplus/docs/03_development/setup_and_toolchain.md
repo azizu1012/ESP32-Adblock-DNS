@@ -34,7 +34,7 @@ A PowerShell script (borrowed from the Python version) that automates the downlo
 Compiles the C++ source code into an ELF binary using Xtensa GCC. Also compiles the custom `partitions.csv` and generates the SPIFFS image automatically during the build process (by packing the `../ESP32-Adb-Python/firmware/web/` folder and `blocked.bin` into `spiffs.bin`).
 
 ### 3. ESP-IDF `idf.py flash` (Serial Uploader)
-Flashes the compiled Bootloader, App binary, Partition Table, and SPIFFS image to the ESP32 via serial (USB) at 460800 baud rate.
+Flashes the compiled Bootloader, App binary, Partition Table, and SPIFFS image to the ESP32 via serial (USB) at 57600 baud rate (due to hardware quirks).
 
 ## Building and Flashing
 
@@ -48,7 +48,7 @@ $env:IDF_TOOLS_PATH="D:\AI_Projects\ESP32-Side-PRJ\ESP32-Adb-Cplusplus\.espressi
 ### 2. Full Build & Flash
 Use `idf.py` to compile the firmware and flash it to the ESP32:
 ```bash
-idf.py build flash -p COM3
+idf.py build flash -p COM3 -b 57600
 ```
 *Note: This command automatically packs the `spiffs.bin` and uploads it alongside the app binary.*
 
