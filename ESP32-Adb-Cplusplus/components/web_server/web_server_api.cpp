@@ -148,6 +148,33 @@ static esp_err_t api_upload_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+static esp_err_t api_crashlog_handler(httpd_req_t *req) {
+    if (is_rate_limited()) return ESP_FAIL;
+    httpd_resp_set_type(req, "text/plain");
+
+    FILE* fd = fopen("/spiffs/crash.log", "r");
+    if (!fd) {
+        httpd_resp_sendstr(req, "No crash log found (or file is empty).\n");
+        return ESP_OK;
+    }
+
+    char chunk[512];
+    size_t chunksize;
+    do {
+        chunksize = fread(chunk, 1, sizeof(chunk), fd);
+        if (chunksize > 0) {
+            if (httpd_resp_send_chunk(req, chunk, chunksize) != ESP_OK) {
+                fclose(fd);
+                return ESP_FAIL;
+            }
+        }
+    } while (chunksize != 0);
+
+    fclose(fd);
+    httpd_resp_send_chunk(req, NULL, 0);
+    return ESP_OK;
+}
+
 static esp_err_t api_reboot_handler(httpd_req_t *req) {
     httpd_resp_sendstr(req, "{\"status\":\"rebooting\"}");
     vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -293,6 +320,7 @@ void register_api_routes(httpd_handle_t server) {
     httpd_uri_t uri_config_wifi = { .uri = "/api/config/wifi", .method = HTTP_POST, .handler = api_config_wifi_handler, .user_ctx = NULL };
     httpd_uri_t uri_config_reset = { .uri = "/api/config/reset", .method = HTTP_POST, .handler = api_config_reset_handler, .user_ctx = NULL };
     httpd_uri_t uri_config_dhcp = { .uri = "/api/config/dhcp", .method = HTTP_POST, .handler = api_config_dhcp_handler, .user_ctx = NULL };
+    httpd_uri_t uri_crashlog = { .uri = "/api/crashlog", .method = HTTP_GET, .handler = api_crashlog_handler, .user_ctx = NULL };
     
     httpd_register_uri_handler(server, &uri_stats);
     httpd_register_uri_handler(server, &uri_safe);
@@ -303,4 +331,5 @@ void register_api_routes(httpd_handle_t server) {
     httpd_register_uri_handler(server, &uri_config_wifi);
     httpd_register_uri_handler(server, &uri_config_reset);
     httpd_register_uri_handler(server, &uri_config_dhcp);
+    httpd_register_uri_handler(server, &uri_crashlog);
 }

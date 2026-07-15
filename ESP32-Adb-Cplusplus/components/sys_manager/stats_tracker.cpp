@@ -317,7 +317,7 @@ char* stats_get_json_response(void) {
     double temp_clean = temp_x10 / 10.0;  // 539 / 10.0 = exactly 53.9 in double
     
     cJSON_AddNumberToObject(root, "cpu_temp", temp_clean);
-    cJSON_AddNumberToObject(root, "cpu_freq", 240);
+    cJSON_AddNumberToObject(root, "cpu_freq", CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ);
     cJSON_AddNumberToObject(root, "core_count", 2);
 
     // Flash info

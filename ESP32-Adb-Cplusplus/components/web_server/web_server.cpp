@@ -11,6 +11,7 @@ void web_server_start(void) {
     if (server != NULL) return;
     
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.lru_purge_enable = true; // Chống tràn Socket (giải phóng Socket cũ khi bị treo Keep-Alive)
     config.stack_size = 8192; // Tăng stack size để tránh Stack Overflow
     
     // Tối ưu giống Python: Bật Keep Alive để tránh rớt kết nối

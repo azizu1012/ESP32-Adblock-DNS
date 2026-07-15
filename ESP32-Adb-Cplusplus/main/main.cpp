@@ -74,6 +74,23 @@ extern "C" void app_main(void)
     init_spiffs();
     log_reset_reason();
 
+    // --- DUMP CRASH LOG ---
+    FILE* f = fopen("/spiffs/crash.log", "r");
+    if (f) {
+        ESP_LOGE(TAG, "==== CRASH LOG DUMP ====");
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            // Loại bỏ ký tự xuống dòng ở cuối nếu có để in đẹp hơn
+            line[strcspn(line, "\r\n")] = 0;
+            ESP_LOGE(TAG, "LOG: %s", line);
+        }
+        ESP_LOGE(TAG, "========================");
+        fclose(f);
+    } else {
+        ESP_LOGI(TAG, "No crash log found.");
+    }
+    // ----------------------
+
     ESP_LOGI(TAG, "C++ DNS AdBlocker is starting...");
     ESP_LOGI(TAG, "CPU Core: %d", esp_cpu_get_core_id());
     

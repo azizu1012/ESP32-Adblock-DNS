@@ -222,6 +222,7 @@ void wifi_manager_init(void) {
     
     is_ap_mode = true;
     ESP_ERROR_CHECK(esp_wifi_start());
+    esp_wifi_set_max_tx_power(40); // Cắt giảm công suất phát (10dBm) để chống sụt áp LDO (Brownout)
 }
 
 bool wifi_is_ap_mode(void) { return is_ap_mode.load(); }
