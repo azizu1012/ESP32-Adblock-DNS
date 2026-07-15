@@ -82,7 +82,7 @@ CLIENT               ESP32 (dns_server.cpp)                    FLASH (blocked.bi
 
 ## 3. Web Server & UI Architecture
 
-To serve a rich React-like UI without exhausting the ESP32's limited LwIP socket pool (max 8 concurrent connections), the system employs a **3-Stage Progressive Loading** architecture combined with network-level TCP tuning.
+To serve a rich React-like UI without exhausting the ESP32's limited LwIP socket pool (max 16 concurrent connections in our optimized build), the system employs a **3-Stage Progressive Loading** architecture combined with network-level TCP tuning.
 
 ```text
 BROWSER                                      ESP32 SERVER
@@ -127,7 +127,7 @@ conn.sendall(header.encode() + body.encode())
 ### Global Shared State Caching
 To survive aggressive concurrent requests (e.g., F5 spamming or multiple open tabs) and prevent `MemoryError` induced crashes on the main thread:
 1. **Byte-level Response Caching**: Heavy endpoints like `/api/stats` generate the JSON exactly once and cache the entire HTTP Response (Header + Body) as raw `bytes` for 1.5 seconds.
-2. **Zero-Allocation Distribution**: If 100 requests arrive within the TTL window, the ESP32 pumps the cached binary buffer directly into the LwIP sockets. This requires zero `json.dumps()` overhead and prevents TCP PCB exhaustion without starving the DNS core.
+2. **Zero-Allocation Distribution**: If 100 requests arrive within the TTL window, the ESP32 pumps the cached binary buffer directly into the LwIP sockets. This requires zero `json.dumps()` overhead and prevents TCP PCB exhaustion without starving the DNS core. Note that standard C++ STL containers (`std::vector`, `std::string`) are strictly forbidden for this cache to prevent heap fragmentation; only static C-arrays and preallocated buffers are used.
 
 ### Smart Lazy Load 2.0 (TCP Exhaustion Mitigation)
 Traditional `setInterval()` polling in the browser can rapidly exhaust the ESP32's LwIP TCP Protocol Control Blocks (PCBs) if a user leaves a tab open in the background (causing `ERR_CONNECTION_TIMED_OUT` as delayed FIN packets stack up). 
@@ -193,7 +193,9 @@ To maintain high availability and low latency despite ISP throttling, router reb
    - A background garbage collector (`_cleanup_pending_queries`) tracks queries older than 2000ms. If 5 queries timeout consecutively without a single successful response in between, the ESP32 declares the upstream "dead" and immediately failovers.
 
 ### 6.2 Seamless Dual-Core Transitions (Zero-Downtime)
-When any of the Triad triggers fire, the ESP32 executes the DNS optimization using its Dual-Core architecture:
+When any of the Triad triggers fire, the ESP32 executes the DNS optimization using its Dual-Core architecture. To ensure 0% packet loss during heavy Web UI traffic, the `dns_server_task` is strictly pinned to Core 0 (Network priority), while the `web_server_task` is strictly pinned to Core 1 (App priority).
+
+1. **Wait for Lock**: Wait up to `500ms` for `dns_mutex` to become available.
 - **Background Worker**: The `optimize_upstream` function is offloaded to a background RTOS thread. This thread performs blocking socket pings (`_measure_rtt`) across 5-6 servers for ~1.5 seconds.
 - **Uninterrupted Main Loop**: During this 1.5s window, the main thread continues resolving DNS queries using the *old* upstream IP. Because DNS is connectionless (UDP), this works perfectly.
 - **Atomic Swap**: Once the background thread identifies the new optimal server, it atomically overwrites `self.upstream_ip`. The very next query received by the main loop is instantly routed to the new server, while responses from the old server (still in transit) are gracefully accepted and returned to the client. This guarantees a 0ms interruption to the user's internet experience.
