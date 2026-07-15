@@ -19,13 +19,9 @@ extern "C" uint8_t temprature_sens_read();
 extern "C" void dns_optimizer_get_upstream(char* out_ip, int* out_rtt);
 extern "C" uint32_t bloom_filter_get_count(void);
 
-#include <string>
-#include <vector>
-#include <unordered_map>
-#include <unordered_set>
-#include <algorithm>
 #include <cstring>
 #include <cmath>
+#include <cJSON.h>
 #include <cJSON.h>
 
 static const char* TAG = "StatsTracker";
@@ -35,43 +31,55 @@ static SemaphoreHandle_t stats_mutex;
 static uint32_t total_queries = 0;
 static uint32_t blocked_queries = 0;
 static uint32_t allowed_queries = 0;
-static std::string last_blocked_domain = "";
+static char last_blocked_domain[128] = "";
 
 // Recent queries: ring buffer of 100 items
 struct RecentQuery {
-    std::string domain;
+    char domain[128];
     bool is_blocked;
     uint64_t timestamp_us;
-    std::string client_ip;
+    char client_ip[16];
 };
-static std::vector<RecentQuery> recent_queries;
 static const size_t MAX_RECENT = 100;
+static RecentQuery recent_queries[100];
 static size_t recent_head = 0;
+static size_t recent_count = 0;
 
-// Top domains: unordered map tracking counts
-static std::unordered_map<std::string, uint32_t> top_domains;
+// Top domains: static array
+struct DomainCount {
+    char domain[128];
+    uint32_t count;
+};
+static DomainCount top_domains[50];
+static int top_domain_count = 0;
 
-// Active clients: unordered map tracking IPs and last seen timestamp (in microseconds)
-static std::unordered_map<std::string, uint64_t> active_clients;
+// Active clients: static array
+struct ActiveClient {
+    char ip[16];
+    uint64_t timestamp_us;
+};
+static ActiveClient active_clients[50];
+static int active_client_count = 0;
 
-// Custom Safelist: persistent safelist managed by user
-static std::unordered_set<std::string> custom_safelist;
+// Custom Safelist: static array
+static char custom_safelist[100][128];
+static int custom_safelist_count = 0;
 
 // Timestamp for periodic stats saving
 static uint64_t last_save_time_us = 0;
 
+// Hàm hỗ trợ sắp xếp top domains
+static int compare_domain_count(const void* a, const void* b) {
+    const DomainCount* da = (const DomainCount*)a;
+    const DomainCount* db = (const DomainCount*)b;
+    if (da->count < db->count) return 1;
+    if (da->count > db->count) return -1;
+    return 0;
+}
+
 static void prune_top_domains() {
-    if (top_domains.size() < 100) return;
-    std::vector<std::pair<std::string, uint32_t>> top_vec(top_domains.begin(), top_domains.end());
-    std::sort(top_vec.begin(), top_vec.end(), 
-        [](const std::pair<std::string, uint32_t>& a, const std::pair<std::string, uint32_t>& b) {
-            return a.second > b.second;
-        });
-    top_domains.clear();
-    int limit = (top_vec.size() > 50) ? 50 : top_vec.size();
-    for (int i = 0; i < limit; i++) {
-        top_domains[top_vec[i].first] = top_vec[i].second;
-    }
+    qsort(top_domains, top_domain_count, sizeof(DomainCount), compare_domain_count);
+    if (top_domain_count > 50) top_domain_count = 50;
 }
 
 
@@ -102,12 +110,16 @@ static void load_persistent_stats() {
                 cJSON* top = cJSON_GetObjectItem(root, "top_domains");
                 if (top && cJSON_IsArray(top)) {
                     int count = cJSON_GetArraySize(top);
+                    if (count > 50) count = 50;
+                    top_domain_count = 0;
                     for (int i = 0; i < count; i++) {
                         cJSON* item = cJSON_GetArrayItem(top, i);
                         cJSON* d = cJSON_GetObjectItem(item, "d");
                         cJSON* c = cJSON_GetObjectItem(item, "c");
                         if (d && c && cJSON_IsString(d) && cJSON_IsNumber(c)) {
-                            top_domains[d->valuestring] = c->valueint;
+                            strncpy(top_domains[top_domain_count].domain, d->valuestring, 127);
+                            top_domains[top_domain_count].count = c->valueint;
+                            top_domain_count++;
                         }
                     }
                 }
@@ -127,10 +139,10 @@ static void save_persistent_stats() {
     cJSON_AddNumberToObject(root, "allowed", allowed_queries);
 
     cJSON* top_arr = cJSON_CreateArray();
-    for (const auto& kv : top_domains) {
+    for (int i = 0; i < top_domain_count; i++) {
         cJSON* item = cJSON_CreateObject();
-        cJSON_AddStringToObject(item, "d", kv.first.c_str());
-        cJSON_AddNumberToObject(item, "c", kv.second);
+        cJSON_AddStringToObject(item, "d", top_domains[i].domain);
+        cJSON_AddNumberToObject(item, "c", top_domains[i].count);
         cJSON_AddItemToArray(top_arr, item);
     }
     cJSON_AddItemToObject(root, "top_domains", top_arr);
@@ -164,10 +176,13 @@ static void load_custom_safelist() {
             cJSON* root = cJSON_Parse(buf);
             if (root && cJSON_IsArray(root)) {
                 int count = cJSON_GetArraySize(root);
+                if (count > 100) count = 100;
+                custom_safelist_count = 0;
                 for (int i = 0; i < count; i++) {
                     cJSON* item = cJSON_GetArrayItem(root, i);
                     if (cJSON_IsString(item) && item->valuestring != NULL) {
-                        custom_safelist.insert(item->valuestring);
+                        strncpy(custom_safelist[custom_safelist_count], item->valuestring, 127);
+                        custom_safelist_count++;
                     }
                 }
             }
@@ -180,8 +195,8 @@ static void load_custom_safelist() {
 
 static void save_custom_safelist() {
     cJSON* root = cJSON_CreateArray();
-    for (const auto& domain : custom_safelist) {
-        cJSON_AddItemToArray(root, cJSON_CreateString(domain.c_str()));
+    for (int i = 0; i < custom_safelist_count; i++) {
+        cJSON_AddItemToArray(root, cJSON_CreateString(custom_safelist[i]));
     }
     char* json_str = cJSON_PrintUnformatted(root);
     if (json_str) {
@@ -197,7 +212,6 @@ static void save_custom_safelist() {
 
 void stats_init(void) {
     stats_mutex = xSemaphoreCreateMutex();
-    recent_queries.reserve(MAX_RECENT);
     load_custom_safelist();
     load_persistent_stats();
 }
@@ -209,35 +223,71 @@ void stats_record_query(const char* domain, bool is_blocked, const char* client_
     total_queries++;
     if (is_blocked) {
         blocked_queries++;
-        last_blocked_domain = domain;
+        strncpy(last_blocked_domain, domain, 127);
     } else {
         allowed_queries++;
     }
 
     // Add to recent
     uint64_t now_us = esp_timer_get_time();
-    RecentQuery rq;
-    rq.domain = domain;
-    rq.is_blocked = is_blocked;
-    rq.timestamp_us = now_us;
-    rq.client_ip = (client_ip) ? client_ip : "";
-
-    if (recent_queries.size() < MAX_RECENT) {
-        recent_queries.push_back(rq);
+    
+    strncpy(recent_queries[recent_head].domain, domain, 127);
+    recent_queries[recent_head].is_blocked = is_blocked;
+    recent_queries[recent_head].timestamp_us = now_us;
+    if (client_ip) {
+        strncpy(recent_queries[recent_head].client_ip, client_ip, 15);
     } else {
-        recent_queries[recent_head] = rq;
-        recent_head = (recent_head + 1) % MAX_RECENT;
+        recent_queries[recent_head].client_ip[0] = '\0';
     }
+    
+    recent_head = (recent_head + 1) % MAX_RECENT;
+    if (recent_count < MAX_RECENT) recent_count++;
 
     // Add to top domains (if blocked)
     if (is_blocked) {
-        top_domains[domain]++;
-        prune_top_domains();
+        bool found = false;
+        for (int i = 0; i < top_domain_count; i++) {
+            if (strcmp(top_domains[i].domain, domain) == 0) {
+                top_domains[i].count++;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            if (top_domain_count < 50) {
+                strncpy(top_domains[top_domain_count].domain, domain, 127);
+                top_domains[top_domain_count].count = 1;
+                top_domain_count++;
+            } else {
+                prune_top_domains();
+                // Find minimum
+                int min_idx = 0;
+                for (int i = 1; i < top_domain_count; i++) {
+                    if (top_domains[i].count < top_domains[min_idx].count) {
+                        min_idx = i;
+                    }
+                }
+                strncpy(top_domains[min_idx].domain, domain, 127);
+                top_domains[min_idx].count = 1;
+            }
+        }
     }
 
     // Track client IP
     if (client_ip && strlen(client_ip) > 0) {
-        active_clients[client_ip] = esp_timer_get_time();
+        bool found = false;
+        for (int i = 0; i < active_client_count; i++) {
+            if (strcmp(active_clients[i].ip, client_ip) == 0) {
+                active_clients[i].timestamp_us = esp_timer_get_time();
+                found = true;
+                break;
+            }
+        }
+        if (!found && active_client_count < 50) {
+            strncpy(active_clients[active_client_count].ip, client_ip, 15);
+            active_clients[active_client_count].timestamp_us = esp_timer_get_time();
+            active_client_count++;
+        }
     }
 
     // Save stats periodically (every 5 minutes = 300,000,000 us)
@@ -249,7 +299,7 @@ void stats_record_query(const char* domain, bool is_blocked, const char* client_
     xSemaphoreGive(stats_mutex);
 }
 
-static char* cached_json_str = NULL;
+static char cached_json_str[8192] = "{}";
 static uint64_t last_cache_time_us = 0;
 
 char* stats_get_json_response(void) {
@@ -260,7 +310,7 @@ char* stats_get_json_response(void) {
     xSemaphoreTake(stats_mutex, portMAX_DELAY);
 
     // Byte-level caching: 1.5 seconds TTL
-    if (cached_json_str && (now_us - last_cache_time_us < 1500000ULL)) {
+    if (now_us - last_cache_time_us < 1500000ULL && last_cache_time_us != 0) {
         char* ret_str = strdup(cached_json_str);
         xSemaphoreGive(stats_mutex);
         return ret_str;
@@ -270,12 +320,13 @@ char* stats_get_json_response(void) {
     uint64_t cutoff_us = (now_us > 600000000ULL) ? (now_us - 600000000ULL) : 0;
 
     int client_count = 0;
-    for (auto it = active_clients.begin(); it != active_clients.end(); ) {
-        if (it->second < cutoff_us) {
-            it = active_clients.erase(it);
+    for (int i = 0; i < active_client_count; ) {
+        if (active_clients[i].timestamp_us < cutoff_us) {
+            active_clients[i] = active_clients[active_client_count - 1];
+            active_client_count--;
         } else {
             client_count++;
-            ++it;
+            i++;
         }
     }
     if (client_count == 0) client_count = 1; // Fallback to 1 (self)
@@ -299,7 +350,7 @@ char* stats_get_json_response(void) {
     cJSON_AddNumberToObject(root, "ratio", ratio);
     
     cJSON_AddNumberToObject(root, "uptime", (unsigned long)(now_us / 1000000ULL));
-    cJSON_AddStringToObject(root, "last_blocked", last_blocked_domain.c_str());
+    cJSON_AddStringToObject(root, "last_blocked", last_blocked_domain);
     cJSON_AddNumberToObject(root, "active_clients", client_count);
     cJSON_AddNumberToObject(root, "blocklist_entries", bloom_filter_get_count());
 
@@ -358,54 +409,48 @@ char* stats_get_json_response(void) {
 
     // Recent queries array
     cJSON *recent_arr = cJSON_CreateArray();
-    size_t count = recent_queries.size();
+    size_t count = recent_count;
     for (size_t i = 0; i < count; ++i) {
-        size_t idx = (recent_head + i) % count;
-        if (idx < count) {
-            cJSON *item = cJSON_CreateArray();
-            cJSON_AddItemToArray(item, cJSON_CreateString(recent_queries[idx].domain.c_str()));
-            cJSON_AddItemToArray(item, cJSON_CreateBool(recent_queries[idx].is_blocked));
-            
-            // 3. Categories array (empty for now, could be implemented later)
-            cJSON *cats = cJSON_CreateArray();
-            if (recent_queries[idx].is_blocked) {
-                cJSON_AddItemToArray(cats, cJSON_CreateString("ads"));
-            }
-            cJSON_AddItemToArray(item, cats);
-            
-            // 4. Time ago in seconds
-            uint64_t diff_us = now_us - recent_queries[idx].timestamp_us;
-            cJSON_AddItemToArray(item, cJSON_CreateNumber((double)(diff_us / 1000000ULL)));
-            
-            // 5. Layer (null or string)
-            if (recent_queries[idx].is_blocked) {
-                cJSON_AddItemToArray(item, cJSON_CreateString("BBF"));
-            } else {
-                cJSON_AddItemToArray(item, cJSON_CreateNull());
-            }
-            
-            // 6. Client IP
-            cJSON_AddItemToArray(item, cJSON_CreateString(recent_queries[idx].client_ip.c_str()));
-            
-            cJSON_AddItemToArray(recent_arr, item);
+        size_t idx = (recent_head + MAX_RECENT - count + i) % MAX_RECENT;
+        cJSON *item = cJSON_CreateArray();
+        cJSON_AddItemToArray(item, cJSON_CreateString(recent_queries[idx].domain));
+        cJSON_AddItemToArray(item, cJSON_CreateBool(recent_queries[idx].is_blocked));
+        
+        // 3. Categories array (empty for now, could be implemented later)
+        cJSON *cats = cJSON_CreateArray();
+        if (recent_queries[idx].is_blocked) {
+            cJSON_AddItemToArray(cats, cJSON_CreateString("ads"));
         }
+        cJSON_AddItemToArray(item, cats);
+        
+        // 4. Time ago in seconds
+        uint64_t diff_us = now_us - recent_queries[idx].timestamp_us;
+        cJSON_AddItemToArray(item, cJSON_CreateNumber((double)(diff_us / 1000000ULL)));
+        
+        // 5. Layer (null or string)
+        if (recent_queries[idx].is_blocked) {
+            cJSON_AddItemToArray(item, cJSON_CreateString("BBF"));
+        } else {
+            cJSON_AddItemToArray(item, cJSON_CreateNull());
+        }
+        
+        // 6. Client IP
+        cJSON_AddItemToArray(item, cJSON_CreateString(recent_queries[idx].client_ip));
+        
+        cJSON_AddItemToArray(recent_arr, item);
     }
     cJSON_AddItemToObject(root, "recent", recent_arr);
 
     // Top domains array
-    // Create a vector of pairs, sort by count descending, pick top 10
-    std::vector<std::pair<std::string, uint32_t>> top_vec(top_domains.begin(), top_domains.end());
-    std::sort(top_vec.begin(), top_vec.end(), 
-        [](const std::pair<std::string, uint32_t>& a, const std::pair<std::string, uint32_t>& b) {
-            return a.second > b.second;
-        });
+    // Ensure top_domains is sorted
+    prune_top_domains();
 
     cJSON *top_arr = cJSON_CreateArray();
-    int top_limit = (top_vec.size() > 10) ? 10 : top_vec.size();
+    int top_limit = (top_domain_count > 10) ? 10 : top_domain_count;
     for (int i = 0; i < top_limit; ++i) {
         cJSON *item = cJSON_CreateObject();
-        cJSON_AddStringToObject(item, "d", top_vec[i].first.c_str());
-        cJSON_AddNumberToObject(item, "c", top_vec[i].second);
+        cJSON_AddStringToObject(item, "d", top_domains[i].domain);
+        cJSON_AddNumberToObject(item, "c", top_domains[i].count);
         
         cJSON *g_arr = cJSON_CreateArray();
         cJSON_AddItemToArray(g_arr, cJSON_CreateString("ads")); // Default category
@@ -415,18 +460,15 @@ char* stats_get_json_response(void) {
     }
     cJSON_AddItemToObject(root, "top", top_arr);
 
-    xSemaphoreGive(stats_mutex);
-
-    char *json_str = cJSON_PrintUnformatted(root);
+    cJSON_PrintPreallocated(root, cached_json_str, sizeof(cached_json_str), 0);
     cJSON_Delete(root);
 
-    xSemaphoreTake(stats_mutex, portMAX_DELAY);
-    if (cached_json_str) free(cached_json_str);
-    cached_json_str = strdup(json_str);
-    last_cache_time_us = esp_timer_get_time();
+    last_cache_time_us = now_us;
+    
+    char* ret_str = strdup(cached_json_str);
     xSemaphoreGive(stats_mutex);
 
-    return json_str;
+    return ret_str;
 }
 
 char* stats_get_custom_safelist_json(void) {
@@ -434,8 +476,8 @@ char* stats_get_custom_safelist_json(void) {
     xSemaphoreTake(stats_mutex, portMAX_DELAY);
     
     cJSON* root = cJSON_CreateArray();
-    for (const auto& domain : custom_safelist) {
-        cJSON_AddItemToArray(root, cJSON_CreateString(domain.c_str()));
+    for (int i = 0; i < custom_safelist_count; i++) {
+        cJSON_AddItemToArray(root, cJSON_CreateString(custom_safelist[i]));
     }
     
     char* json_str = cJSON_PrintUnformatted(root);
@@ -448,8 +490,18 @@ bool stats_add_custom_safelist(const char* domain) {
     if (!stats_mutex) return false;
     xSemaphoreTake(stats_mutex, portMAX_DELAY);
     
-    custom_safelist.insert(domain);
-    save_custom_safelist();
+    bool found = false;
+    for (int i = 0; i < custom_safelist_count; i++) {
+        if (strcmp(custom_safelist[i], domain) == 0) {
+            found = true;
+            break;
+        }
+    }
+    if (!found && custom_safelist_count < 100) {
+        strncpy(custom_safelist[custom_safelist_count], domain, 127);
+        custom_safelist_count++;
+        save_custom_safelist();
+    }
     
     xSemaphoreGive(stats_mutex);
     return true;
@@ -459,10 +511,16 @@ bool stats_remove_custom_safelist(const char* domain) {
     if (!stats_mutex) return false;
     xSemaphoreTake(stats_mutex, portMAX_DELAY);
     
-    auto it = custom_safelist.find(domain);
-    if (it != custom_safelist.end()) {
-        custom_safelist.erase(it);
-        save_custom_safelist();
+    for (int i = 0; i < custom_safelist_count; i++) {
+        if (strcmp(custom_safelist[i], domain) == 0) {
+            custom_safelist[i][0] = '\0';
+            if (i < custom_safelist_count - 1) {
+                strcpy(custom_safelist[i], custom_safelist[custom_safelist_count - 1]);
+            }
+            custom_safelist_count--;
+            save_custom_safelist();
+            break;
+        }
     }
     
     xSemaphoreGive(stats_mutex);
@@ -473,7 +531,13 @@ bool stats_is_in_custom_safelist(const char* domain) {
     if (!stats_mutex) return false;
     xSemaphoreTake(stats_mutex, portMAX_DELAY);
     
-    bool found = (custom_safelist.find(domain) != custom_safelist.end());
+    bool found = false;
+    for (int i = 0; i < custom_safelist_count; i++) {
+        if (strcmp(custom_safelist[i], domain) == 0) {
+            found = true;
+            break;
+        }
+    }
     
     xSemaphoreGive(stats_mutex);
     return found;

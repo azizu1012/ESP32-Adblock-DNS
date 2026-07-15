@@ -50,7 +50,7 @@ Navigate to the C++ project folder and build the firmware:
 ```bash
 cd ESP32-Adb-Cplusplus
 idf.py build
-idf.py -p COM3 flash monitor
+idf.py -p COM3 -b 57600 flash monitor
 ```
 
 ### 3. Generate & Upload Blocklist

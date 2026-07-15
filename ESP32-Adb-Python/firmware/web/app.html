@@ -73,12 +73,9 @@ body{background:#080c18;color:#e2e8f0;font-family:system-ui,-apple-system,sans-s
   </div>
   <div class="grid-mid">
     <div class="gc ai d6">
-      <h3 style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px">Blocked Categories</h3>
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;height:200px">
-        <div style="position:relative;width:50%;height:100%"><canvas id="donut"></canvas></div>
-        <div id="catLegend" style="width:50%;display:flex;flex-direction:column;gap:10px">
-          <div style="text-align:center;color:#64748b;font-size:13px">Loading categories&#8230;</div>
-        </div>
+      <h3 style="font-size:14px;font-weight:600;color:#94a3b8;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px">DNS Traffic (Real-time)</h3>
+      <div style="position:relative;width:100%;height:200px">
+        <canvas id="donut"></canvas>
       </div>
     </div>
     <div class="gc ai d6">
@@ -199,51 +196,54 @@ function render(d){
   document.getElementById('sI').textContent=d.ip||'--'
   document.getElementById('sT').textContent=(d.cpu_temp&&d.cpu_temp<100)?d.cpu_temp+'\u00b0C':'--'
   
-  // Render Blocked 7 Categories Donut Chart
-  var cats=d.categories||{ads:0,tracking:0,telemetry:0,analytics:0,privacy:0,malware:0,experiment:0};
-  var catData=[cats.ads,cats.tracking,cats.telemetry,cats.analytics,cats.privacy,cats.malware,cats.experiment];
-  var hasData=catData.some(function(v){return v>0});
-  var chartData=hasData?catData:[1,0,0,0,0,0,0]; // Placeholder if no data
+  // Real-time Traffic Line Chart Logic
+  if (typeof window.trafficHistory === 'undefined') {
+    window.trafficHistory = new Array(20).fill(0);
+    window.lastTotalQueries = -1;
+  }
   
-  var labels=['Ads','Tracking','Telemetry','Analytics','Privacy','Malware','Experiment'];
-  var colors=['#10b981','#3b82f6','#8b5cf6','#ec4899','#0ea5e9','#f97316','#a855f7'];
-  var bgColors=[
-    'rgba(16,185,129,.75)',
-    'rgba(59,130,246,.75)',
-    'rgba(139,92,246,.75)',
-    'rgba(236,72,153,.75)',
-    'rgba(14,165,233,.75)',
-    'rgba(249,115,22,.75)',
-    'rgba(168,85,247,.75)'
-  ];
-  var borderColors=['#10b981','#3b82f6','#8b5cf6','#ec4899','#0ea5e9','#f97316','#a855f7'];
-  
-  // Custom HTML Legend (Compact 7 categories)
-  var legendHtml=labels.map(function(label,idx){
-    var key=label.toLowerCase();
-    var val=cats[key]||0;
-    return '<div style="display:flex;align-items:center;font-size:11px;width:100%;line-height:1.2"><span style="width:6px;height:6px;border-radius:50%;background:'+colors[idx]+';display:inline-block;margin-right:5px"></span><span style="color:#94a3b8;flex:1">'+label+'</span><span style="font-weight:600;color:#e2e8f0">'+fmt(val)+'</span></div>';
-  }).join('');
-  document.getElementById('catLegend').innerHTML=legendHtml;
+  if (window.lastTotalQueries !== -1) {
+    var delta = Math.max(0, d.total - window.lastTotalQueries);
+    window.trafficHistory.push(delta);
+    window.trafficHistory.shift();
+  } else {
+    // Initial load, no delta yet
+    if(d.total > 0) window.lastTotalQueries = d.total;
+  }
+  if(d.total > 0) window.lastTotalQueries = d.total;
+
+  var labels = new Array(20).fill('');
   
   if(typeof Chart!=='undefined'){
     if(!ch){
       ch=new Chart(document.getElementById('donut').getContext('2d'),{
-        type:'doughnut',
+        type:'line',
         data:{
           labels:labels,
-          datasets:[{data:chartData,backgroundColor:bgColors,borderColor:borderColors,borderWidth:1,hoverOffset:5}]
+          datasets:[{
+            label: 'Queries / interval',
+            data: window.trafficHistory,
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59,130,246,0.1)',
+            borderWidth: 2,
+            tension: 0.3,
+            fill: true,
+            pointRadius: 0
+          }]
         },
         options:{
           responsive:true,
           maintainAspectRatio:false,
-          cutout:'65%',
-          plugins:{legend:{display:false}},
-          animation:{animateRotate:true,duration:800}
+          plugins:{legend:{display:false}, tooltip:{enabled:false}},
+          scales:{
+            x:{display:false},
+            y:{display:true, beginAtZero:true, grid:{color:'rgba(255,255,255,0.05)'}, ticks:{color:'#64748b', maxTicksLimit:5, stepSize:1}}
+          },
+          animation:{duration:400}
         }
       });
     } else {
-      ch.data.datasets[0].data=chartData;
+      ch.data.datasets[0].data=window.trafficHistory;
       ch.update();
     }
   }

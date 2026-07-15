@@ -23,8 +23,9 @@ void web_server_start(void) {
     // Tối ưu giống Python (Payload Cap): Chặn mỏm Header quá 4096 bytes để chống OOM
     // (Đã chuyển cấu hình max_req_hdr_len vào sdkconfig.defaults của ESP-IDF)
     
-    config.max_uri_handlers = 12; // 8 route API + tĩnh
-    config.max_open_sockets = 5;  // Giới hạn an toàn của ESP-IDF cho web server
+    config.max_uri_handlers = 16; // Chứa đủ các API + tĩnh + lỗi
+    config.max_open_sockets = 7;  // Tăng lên 7 để xử lý mượt API song song
+    config.core_id = 1;           // ÉP CỨNG Web Server vào Core 1 (App CPU) để không giành giật với DNS
 
     ESP_LOGI(TAG, "Đang khởi động Web Server trên C++...");
     if (httpd_start(&server, &config) == ESP_OK) {

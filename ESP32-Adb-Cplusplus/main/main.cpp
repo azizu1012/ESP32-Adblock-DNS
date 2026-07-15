@@ -10,7 +10,7 @@
 #include "sys_manager.h"
 #include "stats_tracker.h"
 #include "dns_optimizer.h"
-
+#include "crash_logger.h"
 static const char *TAG = "AdBlock_C++";
 
 // Hàm mồi (Mount) ổ đĩa SPIFFS
@@ -29,34 +29,26 @@ static void init_spiffs(void) {
     }
 }
 
+extern esp_reset_reason_t pending_crash_reason;
+
 static void log_reset_reason(void) {
     esp_reset_reason_t reason = esp_reset_reason();
-    const char* reason_str = "UNKNOWN";
     bool is_crash = false;
 
     switch (reason) {
-        case ESP_RST_POWERON: reason_str = "Power-on Reset"; break;
-        case ESP_RST_EXT: reason_str = "External Pin Reset"; break;
-        case ESP_RST_SW: reason_str = "Software Reset"; break;
-        case ESP_RST_PANIC: reason_str = "Software Exception / Panic"; is_crash = true; break;
-        case ESP_RST_INT_WDT: reason_str = "Interrupt Watchdog Timeout"; is_crash = true; break;
-        case ESP_RST_TASK_WDT: reason_str = "Task Watchdog Timeout"; is_crash = true; break;
-        case ESP_RST_WDT: reason_str = "Other Watchdog"; is_crash = true; break;
-        case ESP_RST_DEEPSLEEP: reason_str = "Deep Sleep Wakeup"; break;
-        case ESP_RST_BROWNOUT: reason_str = "Brownout (Voltage Drop)"; is_crash = true; break;
-        case ESP_RST_SDIO: reason_str = "SDIO Reset"; break;
-        default: reason_str = "Other / Unknown"; break;
+        case ESP_RST_PANIC:
+        case ESP_RST_INT_WDT:
+        case ESP_RST_TASK_WDT:
+        case ESP_RST_WDT:
+        case ESP_RST_BROWNOUT:
+            is_crash = true; 
+            break;
+        default: 
+            break;
     }
 
-    ESP_LOGI(TAG, "Reset Reason: %s", reason_str);
-
-    // Save to crash.log if it's an unexpected crash
     if (is_crash) {
-        FILE* f = fopen("/spiffs/crash.log", "a");
-        if (f) {
-            fprintf(f, "CRASH DETECTED: %s\n", reason_str);
-            fclose(f);
-        }
+        pending_crash_reason = reason;
     }
 }
 
@@ -94,9 +86,10 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "C++ DNS AdBlocker is starting...");
     ESP_LOGI(TAG, "CPU Core: %d", esp_cpu_get_core_id());
     
-    // Khởi tạo Đèn LED và WiFi
+    // Khởi tạo Đèn LED, WiFi và Trình theo dõi Lỗi
     led_indicator_init();
     wifi_manager_init();
+    crash_logger_init();
 
     // 2. Cấu hình WiFi và DNS Manager
     stats_init();

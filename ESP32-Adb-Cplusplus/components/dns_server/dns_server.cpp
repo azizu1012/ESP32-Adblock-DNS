@@ -324,5 +324,5 @@ void dns_server_start(void) {
     dns_optimizer_init();
     gct_verifier_init();
     
-    xTaskCreatePinnedToCore(dns_server_task, "dns_server", 4096, NULL, 5, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(dns_server_task, "dns_server", 4096, NULL, 5, NULL, 0);
 }

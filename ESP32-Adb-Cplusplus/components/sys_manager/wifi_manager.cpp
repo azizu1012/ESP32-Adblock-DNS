@@ -10,6 +10,8 @@ extern "C" void dns_optimizer_set_upstream(const char* ip, int rtt);
 #include "freertos/semphr.h"
 #include <cJSON.h>
 #include <atomic>
+#include "esp_sntp.h"
+#include "esp_timer.h"
 
 static const char *TAG = "WiFi_Manager";
 static std::atomic<bool> is_ap_mode{false};
@@ -25,6 +27,12 @@ extern "C" void wifi_config_unlock(void) {
     if (s_wifi_config_mutex) xSemaphoreGive(s_wifi_config_mutex);
 }
 
+static esp_timer_handle_t wifi_retry_timer = NULL;
+static void wifi_retry_timer_cb(void* arg) {
+    ESP_LOGI(TAG, "Đang thử kết nối lại WiFi (Tự phục hồi)...");
+    esp_wifi_connect();
+}
+
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
@@ -34,10 +42,14 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
             s_retry_num++;
             ESP_LOGI(TAG, "Thử kết nối lại WiFi (lần %d)...", s_retry_num);
         } else {
-            ESP_LOGE(TAG, "Đã thử 5 lần không thành công! Ngừng kết nối STA để ổn định sóng AP.");
+            ESP_LOGW(TAG, "Đã thử 5 lần không thành công! Hẹn giờ thử lại sau 15 giây...");
             is_connected = false;
+            esp_timer_stop(wifi_retry_timer); // Đảm bảo timer cũ đã dừng
+            esp_timer_start_once(wifi_retry_timer, 15000000); // 15 giây = 15.000.000 us
         }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        s_retry_num = 0; // Reset bộ đếm khi kết nối thành công
+        esp_timer_stop(wifi_retry_timer); // Tắt hẹn giờ
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "Đã kết nối WiFi thành công! IP: " IPSTR, IP2STR(&event->ip_info.ip));
         
@@ -124,6 +136,13 @@ void wifi_manager_init(void) {
     if (s_wifi_config_mutex == NULL) {
         s_wifi_config_mutex = xSemaphoreCreateMutex();
     }
+    
+    // Khởi tạo Timer để Auto-Reconnect
+    esp_timer_create_args_t timer_args = {};
+    timer_args.callback = &wifi_retry_timer_cb;
+    timer_args.name = "wifi_retry";
+    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &wifi_retry_timer));
+
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     
@@ -221,8 +240,21 @@ void wifi_manager_init(void) {
     }
     
     is_ap_mode = true;
+    
+    // Soft-start: Chờ 500ms cho điện áp ổn định trước khi bật Wi-Fi PHY
+    vTaskDelay(pdMS_TO_TICKS(500));
+    
     ESP_ERROR_CHECK(esp_wifi_start());
-    esp_wifi_set_max_tx_power(40); // Cắt giảm công suất phát (10dBm) để chống sụt áp LDO (Brownout)
+    esp_wifi_set_max_tx_power(32); // Cắt giảm công suất phát (8dBm) để mạch sống dai với cáp dỏm
+
+    // Khởi tạo SNTP để đồng bộ thời gian (cần cho ghi log)
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_init();
+    
+    // Đặt múi giờ Việt Nam (UTC+7)
+    setenv("TZ", "<-07>7", 1);
+    tzset();
 }
 
 bool wifi_is_ap_mode(void) { return is_ap_mode.load(); }
