@@ -86,9 +86,11 @@ static void optimize_task(void *pvParameter) {
         if (netif) {
             esp_netif_dns_info_t dns;
             if (esp_netif_get_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns) == ESP_OK) {
-                if (dns.ip.type == ESP_IPADDR_TYPE_V4) {
+                if (dns.ip.type == ESP_IPADDR_TYPE_V4 && dns.ip.u_addr.ip4.addr != 0) {
                     esp_ip4addr_ntoa(&dns.ip.u_addr.ip4, dhcp_dns, sizeof(dhcp_dns));
-                    candidates[5] = dhcp_dns;
+                    if (strcmp(dhcp_dns, "0.0.0.0") != 0) {
+                        candidates[5] = dhcp_dns;
+                    }
                 }
             }
         }

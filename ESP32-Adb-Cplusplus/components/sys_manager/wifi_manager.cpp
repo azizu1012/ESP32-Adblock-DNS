@@ -196,6 +196,13 @@ void wifi_manager_init(void) {
                         if (netif) {
                             esp_netif_dhcpc_stop(netif);
                             esp_netif_set_ip_info(netif, &ip_info);
+                            
+                            // Cấu hình DNS Server tĩnh (Bắt buộc để SNTP phân giải được pool.ntp.org khi dùng Static IP)
+                            esp_netif_dns_info_t dns_info = {};
+                            dns_info.ip.u_addr.ip4.addr = esp_ip4addr_aton("8.8.8.8");
+                            dns_info.ip.type = ESP_IPADDR_TYPE_V4;
+                            esp_netif_set_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns_info);
+                            
                             ESP_LOGI(TAG, "Đã set Static IP từ config: %s", ip->valuestring);
                         }
                     }

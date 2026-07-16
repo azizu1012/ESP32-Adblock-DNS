@@ -184,6 +184,12 @@ static esp_err_t api_reboot_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+static esp_err_t api_favicon_handler(httpd_req_t *req) {
+    httpd_resp_set_status(req, "204 No Content");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
 static esp_err_t api_config_reset_handler(httpd_req_t *req) {
     if (is_rate_limited()) return ESP_FAIL;
     wifi_config_lock();
@@ -327,6 +333,7 @@ void register_api_routes(httpd_handle_t server) {
     httpd_uri_t uri_config_reset = { .uri = "/api/config/reset", .method = HTTP_POST, .handler = api_config_reset_handler, .user_ctx = NULL };
     httpd_uri_t uri_config_dhcp = { .uri = "/api/config/dhcp", .method = HTTP_POST, .handler = api_config_dhcp_handler, .user_ctx = NULL };
     httpd_uri_t uri_crashlog = { .uri = "/api/crashlog", .method = HTTP_GET, .handler = api_crashlog_handler, .user_ctx = NULL };
+    httpd_uri_t uri_favicon = { .uri = "/favicon.ico", .method = HTTP_GET, .handler = api_favicon_handler, .user_ctx = NULL };
     
     httpd_register_uri_handler(server, &uri_stats);
     httpd_register_uri_handler(server, &uri_safe);
@@ -338,4 +345,5 @@ void register_api_routes(httpd_handle_t server) {
     httpd_register_uri_handler(server, &uri_config_reset);
     httpd_register_uri_handler(server, &uri_config_dhcp);
     httpd_register_uri_handler(server, &uri_crashlog);
+    httpd_register_uri_handler(server, &uri_favicon);
 }
