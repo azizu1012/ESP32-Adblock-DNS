@@ -30,3 +30,10 @@ This document outlines the major upgrades and operational challenges resolved du
 ### E. LwIP TCP Exhaustion & Hibernation
 - **Challenge**: Similar to the Python version, polling the `/api/stats` endpoint via standard `setInterval()` without backoff logic would drain the LwIP TCP Protocol Control Blocks (PCBs) if users abandoned background tabs.
 - **Solution**: Implemented a recursive timeout and Context-Aware Lazy Loader in the frontend that stops polling entirely if the tab is hidden (`visibilitychange`), preserving the ESP-IDF socket pool strictly for active clients and incoming DNS traffic.
+
+### F. Crash Logger Memory Leak & Offline Time Sync
+- **Challenge**: The system initially dropped crash logs (Panic, WDT) if it couldn't sync NTP time within 60 seconds (common when powered by unstable sources with no WiFi). Fixing this by appending `[TIME NOT SYNCED]` introduced a severe edge case: reading thousands of unsynced log lines into a dynamic `std::vector` during log rotation on the next boot caused a heap exhaustion (OOM) Death Loop.
+- **Solution**: 
+  1. Implemented a 60-second guard rail (`timeinfo.tm_year >= (2020 - 1900)`) to safely tag offline crashes without dropping them.
+  2. Modified the `rotate_crash_logs()` parser to safely skip time-parsing on `[TIME NOT SYNCED]` strings.
+  3. Enforced a strict 50-line maximum cap (`valid_lines.size() <= 50`) on the RAM vector during rotation, instantly purging the oldest entry. This protects the 150KB FreeRTOS heap from unbounded growth and ensures complete immunity to offline crash loops.

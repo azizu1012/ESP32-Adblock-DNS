@@ -12,6 +12,7 @@ extern "C" void dns_optimizer_set_upstream(const char* ip, int rtt);
 #include <atomic>
 #include "esp_sntp.h"
 #include "esp_timer.h"
+#include "crash_logger.h"
 
 static const char *TAG = "WiFi_Manager";
 static std::atomic<bool> is_ap_mode{false};
@@ -43,6 +44,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
             ESP_LOGI(TAG, "Thử kết nối lại WiFi (lần %d)...", s_retry_num);
         } else {
             ESP_LOGW(TAG, "Đã thử 5 lần không thành công! Hẹn giờ thử lại sau 15 giây...");
+            log_abnormal_event("WiFi Connection Lost (5 retries failed). Reconnecting in 15s...");
             is_connected = false;
             esp_timer_stop(wifi_retry_timer); // Đảm bảo timer cũ đã dừng
             esp_timer_start_once(wifi_retry_timer, 15000000); // 15 giây = 15.000.000 us

@@ -33,21 +33,7 @@ extern esp_reset_reason_t pending_crash_reason;
 
 static void log_reset_reason(void) {
     esp_reset_reason_t reason = esp_reset_reason();
-    bool is_crash = false;
-
-    switch (reason) {
-        case ESP_RST_PANIC:
-        case ESP_RST_INT_WDT:
-        case ESP_RST_TASK_WDT:
-        case ESP_RST_WDT:
-        case ESP_RST_BROWNOUT:
-            is_crash = true; 
-            break;
-        default: 
-            break;
-    }
-
-    if (is_crash) {
+    if (reason != ESP_RST_UNKNOWN) {
         pending_crash_reason = reason;
     }
 }

@@ -9,6 +9,7 @@
 #include "esp_timer.h"
 #include "stats_tracker.h"
 #include "sys_manager.h"
+#include "crash_logger.h"
 
 static const char *TAG = "Web_API";
 
@@ -123,6 +124,7 @@ static esp_err_t api_upload_handler(httpd_req_t *req) {
     char* buf = (char*)malloc(4096);
     if (!buf) {
         fclose(fd);
+        log_abnormal_event("Memory Allocation Failed during file upload (4096 bytes)");
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
         return ESP_FAIL;
     }
@@ -225,6 +227,8 @@ static esp_err_t api_config_dhcp_handler(httpd_req_t *req) {
                     cJSON_Delete(root);
                 }
                 free(file_buf);
+            } else {
+                log_abnormal_event("Memory Allocation Failed during config read (DHCP)");
             }
         }
         fclose(f);
@@ -273,6 +277,8 @@ static esp_err_t api_config_wifi_handler(httpd_req_t *req) {
                     config_json = root;
                 }
                 free(file_buf);
+            } else {
+                log_abnormal_event("Memory Allocation Failed during config read (WiFi)");
             }
         }
         fclose(f);
