@@ -22,11 +22,48 @@ extern "C" uint32_t bloom_filter_get_count(void);
 #include <cstring>
 #include <cmath>
 #include <cJSON.h>
-#include <cJSON.h>
 
 static const char* TAG = "StatsTracker";
 
+// ─── cJSON Arena Pool: chống heap fragmentation ───
+// Pool vừa SPIFFS heap (71KB) vừa chứa 30 recent queries ~16KB pool node.
+// Pool tràn → fallback heap an toàn.
+#define JSON_POOL_SIZE 16384
+static char json_pool[JSON_POOL_SIZE];
+static size_t json_pool_offset = 0;
+
+static void* json_pool_malloc(size_t size) {
+    size = (size + 7) & ~7;
+    if (json_pool_offset + size > JSON_POOL_SIZE) {
+        // Pool exhausted — fallback an toàn ra heap, tránh crash
+        return malloc(size);
+    }
+    void* ptr = json_pool + json_pool_offset;
+    json_pool_offset += size;
+    return ptr;
+}
+
+void stats_pool_free(void* ptr) {
+    if (ptr < (void*)json_pool || ptr >= (void*)(json_pool + JSON_POOL_SIZE)) {
+        free(ptr); // heap-allocated → free bình thường
+    }
+}
+
+void stats_pool_reset(void) {
+    json_pool_offset = 0;
+}
+
+// ─────────────────────────────────────────────────
+
 static SemaphoreHandle_t stats_mutex;
+
+void stats_lock(void) {
+    if (stats_mutex) xSemaphoreTake(stats_mutex, portMAX_DELAY);
+}
+
+void stats_unlock(void) {
+    if (stats_mutex) xSemaphoreGive(stats_mutex);
+}
 
 static uint32_t total_queries = 0;
 static uint32_t blocked_queries = 0;
@@ -91,41 +128,38 @@ static void load_persistent_stats() {
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    if (size > 0 && size < 65536) {
-        char* buf = (char*)malloc(size + 1);
-        if (buf) {
-            fread(buf, 1, size, f);
-            buf[size] = '\0';
-            cJSON* root = cJSON_Parse(buf);
-            if (root) {
-                cJSON* tot = cJSON_GetObjectItem(root, "total");
-                if (tot) total_queries = tot->valueint;
-                
-                cJSON* blk = cJSON_GetObjectItem(root, "blocked");
-                if (blk) blocked_queries = blk->valueint;
-                
-                cJSON* alw = cJSON_GetObjectItem(root, "allowed");
-                if (alw) allowed_queries = alw->valueint;
+    if (size > 0 && size < 4096) {
+        char buf[4096];
+        fread(buf, 1, size, f);
+        buf[size] = '\0';
+        cJSON* root = cJSON_Parse(buf);
+        if (root) {
+            cJSON* tot = cJSON_GetObjectItem(root, "total");
+            if (tot) total_queries = tot->valueint;
+            
+            cJSON* blk = cJSON_GetObjectItem(root, "blocked");
+            if (blk) blocked_queries = blk->valueint;
+            
+            cJSON* alw = cJSON_GetObjectItem(root, "allowed");
+            if (alw) allowed_queries = alw->valueint;
 
-                cJSON* top = cJSON_GetObjectItem(root, "top_domains");
-                if (top && cJSON_IsArray(top)) {
-                    int count = cJSON_GetArraySize(top);
-                    if (count > 50) count = 50;
-                    top_domain_count = 0;
-                    for (int i = 0; i < count; i++) {
-                        cJSON* item = cJSON_GetArrayItem(top, i);
-                        cJSON* d = cJSON_GetObjectItem(item, "d");
-                        cJSON* c = cJSON_GetObjectItem(item, "c");
-                        if (d && c && cJSON_IsString(d) && cJSON_IsNumber(c)) {
-                            strncpy(top_domains[top_domain_count].domain, d->valuestring, 127);
-                            top_domains[top_domain_count].count = c->valueint;
-                            top_domain_count++;
-                        }
+            cJSON* top = cJSON_GetObjectItem(root, "top_domains");
+            if (top && cJSON_IsArray(top)) {
+                int count = cJSON_GetArraySize(top);
+                if (count > 50) count = 50;
+                top_domain_count = 0;
+                for (int i = 0; i < count; i++) {
+                    cJSON* item = cJSON_GetArrayItem(top, i);
+                    cJSON* d = cJSON_GetObjectItem(item, "d");
+                    cJSON* c = cJSON_GetObjectItem(item, "c");
+                    if (d && c && cJSON_IsString(d) && cJSON_IsNumber(c)) {
+                        strncpy(top_domains[top_domain_count].domain, d->valuestring, 127);
+                        top_domains[top_domain_count].count = c->valueint;
+                        top_domain_count++;
                     }
                 }
-                cJSON_Delete(root);
             }
-            free(buf);
+            cJSON_Delete(root);
         }
     }
     fclose(f);
@@ -133,6 +167,7 @@ static void load_persistent_stats() {
 }
 
 static void save_persistent_stats() {
+    stats_pool_reset();
     cJSON* root = cJSON_CreateObject();
     cJSON_AddNumberToObject(root, "total", total_queries);
     cJSON_AddNumberToObject(root, "blocked", blocked_queries);
@@ -154,7 +189,7 @@ static void save_persistent_stats() {
             fwrite(json_str, 1, strlen(json_str), f);
             fclose(f);
         }
-        free(json_str);
+        stats_pool_free(json_str);
     }
     cJSON_Delete(root);
     ESP_LOGI(TAG, "Saved persistent stats to SPIFFS");
@@ -194,6 +229,7 @@ static void load_custom_safelist() {
 }
 
 static void save_custom_safelist() {
+    stats_pool_reset();
     cJSON* root = cJSON_CreateArray();
     for (int i = 0; i < custom_safelist_count; i++) {
         cJSON_AddItemToArray(root, cJSON_CreateString(custom_safelist[i]));
@@ -205,13 +241,20 @@ static void save_custom_safelist() {
             fwrite(json_str, 1, strlen(json_str), f);
             fclose(f);
         }
-        free(json_str);
+        stats_pool_free(json_str);
     }
     cJSON_Delete(root);
 }
 
-void stats_init(void) {
+void stats_tracker_init(void) {
     stats_mutex = xSemaphoreCreateMutex();
+    cJSON_InitHooks((cJSON_Hooks*)NULL);
+    {
+        cJSON_Hooks hooks;
+        hooks.malloc_fn = json_pool_malloc;
+        hooks.free_fn = stats_pool_free;
+        cJSON_InitHooks(&hooks);
+    }
     load_custom_safelist();
     load_persistent_stats();
 }
@@ -299,22 +342,29 @@ void stats_record_query(const char* domain, bool is_blocked, const char* client_
     xSemaphoreGive(stats_mutex);
 }
 
-static char cached_json_str[8192] = "{}";
+static char cached_json_str[8192];
 static uint64_t last_cache_time_us = 0;
 
 char* stats_get_json_response(void) {
-    if (!stats_mutex) return strdup("{}");
+    if (!stats_mutex) {
+        cached_json_str[0] = '{';
+        cached_json_str[1] = '}';
+        cached_json_str[2] = '\0';
+        return cached_json_str;
+    }
 
     uint64_t now_us = esp_timer_get_time();
     
     xSemaphoreTake(stats_mutex, portMAX_DELAY);
 
-    // Byte-level caching: 1.5 seconds TTL
-    if (now_us - last_cache_time_us < 1500000ULL && last_cache_time_us != 0) {
-        char* ret_str = strdup(cached_json_str);
+    // Byte-level caching: 30s TTL — giảm tần suất rebuild từ 57.600 → 2.880 lần/ngày
+    if (now_us - last_cache_time_us < 30000000ULL && last_cache_time_us != 0) {
         xSemaphoreGive(stats_mutex);
-        return ret_str;
+        return cached_json_str;
     }
+
+    // Reset arena pool trước khi rebuild — toàn bộ cJSON alloc từ pool tĩnh
+    json_pool_offset = 0;
 
     // Clean up active clients older than 10 minutes (600,000,000 us)
     uint64_t cutoff_us = (now_us > 600000000ULL) ? (now_us - 600000000ULL) : 0;
@@ -407,9 +457,9 @@ char* stats_get_json_response(void) {
     cJSON *dyn_list = cJSON_CreateArray();
     cJSON_AddItemToObject(root, "safelist_dyn", dyn_list);
 
-    // Recent queries array
+    // Recent queries array — giới hạn 30 để vừa arena pool 32KB
     cJSON *recent_arr = cJSON_CreateArray();
-    size_t count = recent_count;
+    size_t count = (recent_count > 30) ? 30 : recent_count;
     for (size_t i = 0; i < count; ++i) {
         size_t idx = (recent_head + MAX_RECENT - count + i) % MAX_RECENT;
         cJSON *item = cJSON_CreateArray();
@@ -460,21 +510,25 @@ char* stats_get_json_response(void) {
     }
     cJSON_AddItemToObject(root, "top", top_arr);
 
-    cJSON_PrintPreallocated(root, cached_json_str, sizeof(cached_json_str), 0);
+    if (!cJSON_PrintPreallocated(root, cached_json_str, sizeof(cached_json_str), 0)) {
+        cached_json_str[0] = '{';
+        cached_json_str[1] = '}';
+        cached_json_str[2] = '\0';
+    }
     cJSON_Delete(root);
 
     last_cache_time_us = now_us;
     
-    char* ret_str = strdup(cached_json_str);
     xSemaphoreGive(stats_mutex);
 
-    return ret_str;
+    return cached_json_str;
 }
 
 char* stats_get_custom_safelist_json(void) {
-    if (!stats_mutex) return strdup("[]");
+    if (!stats_mutex) return NULL;
     xSemaphoreTake(stats_mutex, portMAX_DELAY);
-    
+    stats_pool_reset();
+
     cJSON* root = cJSON_CreateArray();
     for (int i = 0; i < custom_safelist_count; i++) {
         cJSON_AddItemToArray(root, cJSON_CreateString(custom_safelist[i]));
@@ -541,4 +595,18 @@ bool stats_is_in_custom_safelist(const char* domain) {
     
     xSemaphoreGive(stats_mutex);
     return found;
+}
+
+bool stats_has_recent_activity(void) {
+    if (!stats_mutex) return true;
+    xSemaphoreTake(stats_mutex, portMAX_DELAY);
+    uint64_t now_us = esp_timer_get_time();
+    bool active = false;
+    if (recent_count > 0) {
+        size_t last_idx = (recent_head + MAX_RECENT - 1) % MAX_RECENT;
+        uint64_t diff_us = now_us - recent_queries[last_idx].timestamp_us;
+        active = (diff_us < 15000000ULL); // 15 giây
+    }
+    xSemaphoreGive(stats_mutex);
+    return active;
 }

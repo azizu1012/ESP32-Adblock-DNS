@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "lwip/sockets.h"
 #include <string.h>
 #include <ctype.h>
@@ -184,10 +185,12 @@ struct pending_query_t {
     struct sockaddr_storage client_addr;
     socklen_t client_len;
     bool active;
+    uint64_t timestamp_ms; // thời điểm gửi, dùng cho timeout cleanup
 };
 
-static struct pending_query_t pending_queries[16];
+static struct pending_query_t pending_queries[32];
 static uint16_t proxy_tx_id = 0;
+static const uint64_t PENDING_TIMEOUT_MS = 3000; // 3s timeout cho pending query
 
 static void dns_server_task(void *pvParameters) {
     // 1. Khởi tạo Sockets
@@ -237,6 +240,17 @@ static void dns_server_task(void *pvParameters) {
         
         int activity = select(max_sd + 1, &readfds, NULL, NULL, &tv);
         
+        // Periodic cleanup: dọn pending query quá hạn mỗi 1s khi select timeout
+        if (activity == 0) {
+            uint64_t now_ms = esp_timer_get_time() / 1000;
+            for (int i = 0; i < 32; i++) {
+                if (pending_queries[i].active &&
+                    (now_ms - pending_queries[i].timestamp_ms) > PENDING_TIMEOUT_MS) {
+                    pending_queries[i].active = false;
+                }
+            }
+        }
+
         if (activity > 0) {
             // A. Có gói tin từ Điện thoại (Client)
             if (FD_ISSET(local_sock, &readfds)) {
@@ -268,6 +282,8 @@ static void dns_server_task(void *pvParameters) {
                             struct sockaddr_in* addr_in = (struct sockaddr_in*)&client_addr;
                             inet_ntop(AF_INET, &(addr_in->sin_addr), ip_str, INET_ADDRSTRLEN);
                             stats_record_query(domain, true, ip_str);
+                            // Báo hiệu LED ngay khi block — không đợi GCT
+                            led_trigger_block_blink();
                         } else {
                             // Ghi nhận cho phép
                             char ip_str[16];
@@ -280,6 +296,7 @@ static void dns_server_task(void *pvParameters) {
                             pending_queries[proxy_tx_id].client_addr = client_addr;
                             pending_queries[proxy_tx_id].client_len = client_len;
                             pending_queries[proxy_tx_id].active = true;
+                            pending_queries[proxy_tx_id].timestamp_ms = esp_timer_get_time() / 1000;
                             
                             buffer[0] = proxy_tx_id >> 8;
                             buffer[1] = proxy_tx_id & 0xFF;
@@ -290,7 +307,7 @@ static void dns_server_task(void *pvParameters) {
                             inet_pton(AF_INET, active_ip, &upstream_addr.sin_addr);
                             sendto(up_sock, buffer, len, 0, (struct sockaddr *)&upstream_addr, sizeof(upstream_addr));
                             
-                            proxy_tx_id = (proxy_tx_id + 1) & 0x0F;
+                            proxy_tx_id = (proxy_tx_id + 1) & 0x1F;
                         }
                     }
                 }
@@ -301,7 +318,7 @@ static void dns_server_task(void *pvParameters) {
                 int len = recvfrom(up_sock, buffer, sizeof(buffer), 0, NULL, NULL);
                 if (len > 12) {
                     uint16_t upstream_tx = (buffer[0] << 8) | buffer[1];
-                    int slot = upstream_tx % 16;
+                    int slot = upstream_tx % 32;
                     if (pending_queries[slot].active) {
                         // Khôi phục TX ID của Client
                         buffer[0] = pending_queries[slot].client_tx_id >> 8;

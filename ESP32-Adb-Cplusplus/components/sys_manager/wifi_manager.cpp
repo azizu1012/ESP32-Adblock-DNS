@@ -13,6 +13,7 @@ extern "C" void dns_optimizer_set_upstream(const char* ip, int rtt);
 #include "esp_sntp.h"
 #include "esp_timer.h"
 #include "crash_logger.h"
+#include "stats_tracker.h"
 
 static const char *TAG = "WiFi_Manager";
 static std::atomic<bool> is_ap_mode{false};
@@ -114,7 +115,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
                     fputs(new_json, f);
                     fclose(f);
                 }
-                free(new_json);
+                stats_pool_free(new_json);
             }
             cJSON_Delete(root);
             wifi_config_unlock();

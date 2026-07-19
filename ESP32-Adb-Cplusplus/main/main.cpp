@@ -72,13 +72,12 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "C++ DNS AdBlocker is starting...");
     ESP_LOGI(TAG, "CPU Core: %d", esp_cpu_get_core_id());
     
-    // Khởi tạo Đèn LED, WiFi và Trình theo dõi Lỗi
     led_indicator_init();
     wifi_manager_init();
     crash_logger_init();
 
     // 2. Cấu hình WiFi và DNS Manager
-    stats_init();
+    stats_tracker_init();
     dns_server_start();
     web_server_start();
 

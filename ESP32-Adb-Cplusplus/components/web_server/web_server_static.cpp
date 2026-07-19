@@ -47,6 +47,7 @@ static esp_err_t serve_file_handler(httpd_req_t *req) {
         httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
     }
     httpd_resp_set_hdr(req, "ETag", file_etag);
+    httpd_resp_set_hdr(req, "Connection", "close"); // Giải phóng socket ngay sau khi serve
     
     FILE* fd = fopen(filepath, "r");
     if (!fd) {

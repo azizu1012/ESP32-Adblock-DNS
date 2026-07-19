@@ -18,10 +18,9 @@ static QueueHandle_t gct_queue;
 static SemaphoreHandle_t gct_mutex = NULL;
 
 static bool verify_with_adguard(const char* domain) {
-    // Tạm giả lập logic gửi query UDP lên AdGuard (94.140.14.14)
-    // Nếu nó trả về 0.0.0.0 nghĩa là AdGuard xác nhận đây là Ads
-    // Nếu nó trả về IP thật -> Oan -> Tha
-    return true; // Tạm thời Return true để demo kiến trúc
+    // TODO: Implement thật bằng DNS query tới 94.140.14.14 (AdGuard DNS)
+    // Hiện tại return false: KHÔNG whitelist bừa, giữ nguyên blocking decision
+    return false;
 }
 
 static void gct_task(void *pvParameter) {

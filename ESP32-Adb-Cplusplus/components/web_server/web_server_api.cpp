@@ -49,7 +49,7 @@ static esp_err_t api_stats_handler(httpd_req_t *req) {
     char* json_str = stats_get_json_response();
     if (json_str) {
         httpd_resp_send(req, json_str, HTTPD_RESP_USE_STRLEN);
-        free(json_str);
+        // json_str trỏ tới buffer tĩnh stats_tracker, không được free
     } else {
         httpd_resp_send(req, "{}", 2);
     }
@@ -62,7 +62,7 @@ static esp_err_t api_safelist_handler(httpd_req_t *req) {
     char* json_str = stats_get_custom_safelist_json();
     if (json_str) {
         httpd_resp_send(req, json_str, HTTPD_RESP_USE_STRLEN);
-        free(json_str);
+        stats_pool_free(json_str);
     } else {
         httpd_resp_send(req, "[]", 2);
     }
@@ -76,7 +76,8 @@ static esp_err_t api_safelist_add_handler(httpd_req_t *req) {
     if (ret <= 0) return ESP_FAIL;
     buf[ret] = '\0';
     
-    // Parse json {"domain": "..."}
+    stats_lock();
+    stats_pool_reset();
     cJSON* root = cJSON_Parse(buf);
     if (root) {
         cJSON* domain = cJSON_GetObjectItem(root, "domain");
@@ -88,6 +89,7 @@ static esp_err_t api_safelist_add_handler(httpd_req_t *req) {
         }
         cJSON_Delete(root);
     }
+    stats_unlock();
     return ESP_OK;
 }
 
@@ -98,6 +100,8 @@ static esp_err_t api_safelist_remove_handler(httpd_req_t *req) {
     if (ret <= 0) return ESP_FAIL;
     buf[ret] = '\0';
     
+    stats_lock();
+    stats_pool_reset();
     cJSON* root = cJSON_Parse(buf);
     if (root) {
         cJSON* domain = cJSON_GetObjectItem(root, "domain");
@@ -109,6 +113,7 @@ static esp_err_t api_safelist_remove_handler(httpd_req_t *req) {
         }
         cJSON_Delete(root);
     }
+    stats_unlock();
     return ESP_OK;
 }
 
@@ -228,7 +233,7 @@ static esp_err_t api_config_dhcp_handler(httpd_req_t *req) {
                             fwrite(json_str, 1, strlen(json_str), fw);
                             fclose(fw);
                         }
-                        free(json_str);
+                        stats_pool_free(json_str);
                     }
                     cJSON_Delete(root);
                 }
@@ -309,7 +314,7 @@ static esp_err_t api_config_wifi_handler(httpd_req_t *req) {
             fwrite(json_str, 1, strlen(json_str), fw);
             fclose(fw);
         }
-        free(json_str);
+        stats_pool_free(json_str);
     }
     wifi_config_unlock();
 
