@@ -19,6 +19,7 @@ ESP32-Adb-Python/firmware/web/*.gz
 # ============================
 ESP32-Adb-Cplusplus/build/
 ESP32-Adb-Cplusplus/.espressif/
+ESP32-Adb-Cplusplus/esp-idf/
 ESP32-Adb-Cplusplus/managed_components/
 ESP32-Adb-Cplusplus/dependencies.lock
 ESP32-Adb-Cplusplus/sdkconfig
