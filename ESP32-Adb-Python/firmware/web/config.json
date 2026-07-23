@@ -1,1 +1,8 @@
-{"ssid":"Dung","password":"ddmmyy13122004"}
+{
+  "ssid": "Dung",
+  "password": "ddmmyy13122004",
+  "ip": "192.168.1.234",
+  "gateway": "192.168.1.1",
+  "subnet": "255.255.255.0",
+  "upstream": "8.8.8.8"
+}
